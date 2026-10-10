@@ -180,7 +180,7 @@ export function ProfilePage({ focus }: { focus?: Section }) {
   if (!editing) {
     return (
       <div className="page">
-        <PageHeader title="My profile" subtitle="Used to match you with volunteer activities.">
+        <PageHeader title="My profile" subtitle="Used to match you with volunteer activities." eyebrow="Volunteer profile">
           <button className="btn btn-primary" onClick={() => setEditing(true)}>
             Edit profile
           </button>
@@ -232,6 +232,7 @@ export function ProfilePage({ focus }: { focus?: Section }) {
       <PageHeader
         title={profile.complete ? 'Edit profile' : 'Set up your volunteer profile'}
         subtitle={profile.complete ? 'Changes apply to future allocations.' : 'Tell us what you can do and when, so we can match you with the right activities.'}
+        eyebrow="Volunteer profile"
       />
       {progress}
 

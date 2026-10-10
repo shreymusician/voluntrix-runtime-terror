@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { Icon } from './components';
 import { api, type Meta } from './api';
 
 // ------------------------------------------------------------------ toasts
@@ -56,11 +57,19 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
     <FeedbackContext.Provider value={value}>
       {children}
       <div className="toasts" aria-live="polite">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast toast-${t.kind}`} role={t.kind === 'error' ? 'alert' : 'status'}>
-            {t.text}
-          </div>
-        ))}
+        {toasts.map((t) => {
+          const iconByKind = {
+            success: 'activity',
+            error: 'shield',
+          } as const;
+
+          return (
+            <div key={t.id} className={`toast toast-${t.kind}`} role={t.kind === 'error' ? 'alert' : 'status'}>
+              <span className="toast-icon" aria-hidden="true"><Icon name={iconByKind[t.kind]} /></span>
+              <span className="toast-text">{t.text}</span>
+            </div>
+          );
+        })}
       </div>
       <dialog ref={dialog} className="dialog" onCancel={(e) => { e.preventDefault(); settle(false); }}>
         {pending && (
@@ -241,10 +250,11 @@ export function Chips({ items, empty = 'None' }: { items: string[]; empty?: stri
   );
 }
 
-export function PageHeader({ title, subtitle, children }: { title: string; subtitle?: string; children?: ReactNode }) {
+export function PageHeader({ title, subtitle, children, eyebrow }: { title: string; subtitle?: string; children?: ReactNode; eyebrow?: string }) {
   return (
     <header className="page-head">
-      <div>
+      <div className="page-head-copy">
+        {eyebrow && <span className="page-eyebrow">{eyebrow}</span>}
         <h1>{title}</h1>
         {subtitle && <p className="muted">{subtitle}</p>}
       </div>

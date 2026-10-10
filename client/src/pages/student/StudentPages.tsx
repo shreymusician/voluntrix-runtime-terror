@@ -152,17 +152,38 @@ export function StudentDashboard() {
 
   return (
     <div className="page page-wide">
-      <PageHeader title={`Welcome, ${me.user.fullName.split(' ')[0]}`} subtitle="Your volunteering at a glance." />
+      <PageHeader title={`Welcome, ${me.user.fullName.split(' ')[0]}`} subtitle="Your volunteering at a glance." eyebrow="Student dashboard" />
       {loading && !data && <Spinner />}
       {error && <Alert kind="error">{error}</Alert>}
       {data && (
         <>
           <dl className="stat-grid">
             <StatTile label="Profile" value={`${data.profile.completion.percent}%`} note={data.profile.complete ? 'Complete' : 'Incomplete'} tone={data.profile.complete ? undefined : 'warn'} />
-            <StatTile label="Pending requests" value={data.pendingAssignments.length} note="Awaiting confirmation" />
+            <StatTile label="Pending proposals" value={data.pendingAssignments.length} note="Awaiting organizer confirmation" />
             <StatTile label="Confirmed duties" value={data.confirmedAssignments.length} note={`${data.totals.upcomingHours} h upcoming`} />
             <StatTile label="Volunteer hours" value={data.totals.completedHours} note={`${data.totals.completedActivities} activities completed`} />
           </dl>
+
+          <section className="next-actions" aria-labelledby="student-next-actions">
+            <div className="next-actions-heading">
+              <span className="next-actions-kicker">Your next steps</span>
+              <h2 id="student-next-actions">Keep your volunteering moving</h2>
+            </div>
+            <div className="next-action-links">
+              <Link className="next-action" to="/student/activities">
+                <span><strong>Explore activities</strong><small>{data.availableActivities.length} open opportunities to review</small></span>
+                <span className="next-action-arrow" aria-hidden="true">→</span>
+              </Link>
+              <Link className={`next-action${data.pendingAssignments.length ? ' next-action-attention' : ''}`} to="/student/assignments">
+                <span><strong>Track assignments</strong><small>{data.pendingAssignments.length ? `${data.pendingAssignments.length} awaiting organizer confirmation` : 'No proposals awaiting confirmation'}</small></span>
+                <span className="next-action-arrow" aria-hidden="true">→</span>
+              </Link>
+              <Link className="next-action" to="/student/schedule">
+                <span><strong>Check your schedule</strong><small>{data.confirmedAssignments.length} confirmed duties</small></span>
+                <span className="next-action-arrow" aria-hidden="true">→</span>
+              </Link>
+            </div>
+          </section>
 
           <div className="grid-2">
             <section className="card">
@@ -317,7 +338,7 @@ export function ActivitiesPage() {
 
   return (
     <div className="page">
-      <PageHeader title="Available activities" subtitle="Open volunteer positions in published events. Organizers assign volunteers who qualify; you will be notified if you are proposed." />
+      <PageHeader title="Available activities" subtitle="Open volunteer positions in published events. Organizers assign volunteers who qualify; you will be notified if you are proposed." eyebrow="Student opportunities" />
       <div className="filters">
         <input aria-label="Search activities" placeholder="Search by activity, event or skill" value={query} onChange={(e) => setQuery(e.target.value)} />
         <label className="check">
@@ -360,7 +381,7 @@ export function AssignmentsPage() {
 
   return (
     <div className="page">
-      <PageHeader title="My assignments" subtitle="Every assignment proposed to you, with its current status." />
+      <PageHeader title="My assignments" subtitle="Every assignment proposed to you, with its current status." eyebrow="My activity status" />
       <div className="tabs tabs-wrap" role="tablist" aria-label="Status">
         {STATUS_FILTERS.map((f) => (
           <button key={f} role="tab" aria-selected={filter === f} className={`tab${filter === f ? ' tab-active' : ''}`} onClick={() => setFilter(f)}>
@@ -386,7 +407,7 @@ export function SchedulePage() {
 
   return (
     <div className="page">
-      <PageHeader title="My schedule" subtitle="Your confirmed duties, day by day." />
+      <PageHeader title="My schedule" subtitle="Your confirmed duties, day by day." eyebrow="Confirmed schedule" />
       {loading && !data && <Spinner />}
       {error && <Alert kind="error">{error}</Alert>}
       {data && (
@@ -424,7 +445,7 @@ export function SchedulePage() {
 export function NotificationsPage() {
   return (
     <div className="page">
-      <PageHeader title="Notifications" />
+      <PageHeader title="Notifications" eyebrow="Updates" />
       <Notifications />
     </div>
   );

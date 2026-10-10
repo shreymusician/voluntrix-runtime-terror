@@ -72,7 +72,7 @@ export function ManagerDashboard() {
 
   return (
     <div className="page page-wide">
-      <PageHeader title="Dashboard" subtitle={me?.user.role === 'organizer' ? 'Staffing for the events you manage.' : 'Staffing across all events.'}>
+      <PageHeader title="Dashboard" subtitle={me?.user.role === 'organizer' ? 'Staffing for the events you manage.' : 'Staffing across all events.'} eyebrow="Operations overview">
         <select aria-label="Event" value={eventId} onChange={(e) => setEventId(e.target.value)}>
           <option value="">All events</option>
           {events.data?.events.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
@@ -91,6 +91,44 @@ export function ManagerDashboard() {
             <StatTile label="Remaining vacancies" value={t.vacancies} tone={t.vacancies ? 'warn' : undefined} />
             <StatTile label="Conflicts" value={t.conflicts} tone={t.conflicts ? 'bad' : undefined} note={t.conflicts ? 'See Assignments' : 'None detected'} />
           </dl>
+
+          <section className={`next-actions manager-actions${t.pendingApprovals || t.vacancies || t.conflicts ? ' manager-actions-alert' : ''}`} aria-labelledby="manager-next-actions">
+            <div className="next-actions-heading">
+              <span className="next-actions-kicker">Operations queue</span>
+              <h2 id="manager-next-actions">{t.pendingApprovals || t.vacancies || t.conflicts ? 'Items need your attention' : 'Staffing is on track'}</h2>
+              <p className="muted">
+                {t.pendingApprovals || t.vacancies || t.conflicts
+                  ? 'Review live assignment and vacancy data before making changes.'
+                  : 'No pending approvals, open vacancies, or assignment conflicts in this view.'}
+              </p>
+            </div>
+            <div className="next-action-links">
+              {t.pendingApprovals > 0 && (
+                <Link className="next-action next-action-attention" to="/manage/assignments">
+                  <span><strong>Review proposals</strong><small>{t.pendingApprovals} awaiting approval</small></span>
+                  <span className="next-action-arrow" aria-hidden="true">→</span>
+                </Link>
+              )}
+              {t.vacancies > 0 && (
+                <Link className="next-action next-action-attention" to="/manage/events">
+                  <span><strong>Review staffing</strong><small>{t.vacancies} positions remain vacant</small></span>
+                  <span className="next-action-arrow" aria-hidden="true">→</span>
+                </Link>
+              )}
+              {t.conflicts > 0 && (
+                <Link className="next-action next-action-attention" to="/manage/assignments">
+                  <span><strong>Resolve conflicts</strong><small>{t.conflicts} assignments flagged</small></span>
+                  <span className="next-action-arrow" aria-hidden="true">→</span>
+                </Link>
+              )}
+              {!t.pendingApprovals && !t.vacancies && !t.conflicts && (
+                <Link className="next-action" to="/manage/events">
+                  <span><strong>Manage events</strong><small>Review event plans and volunteer roles</small></span>
+                  <span className="next-action-arrow" aria-hidden="true">→</span>
+                </Link>
+              )}
+            </div>
+          </section>
 
           {data.understaffed.length > 0 && (
             <section className="card">

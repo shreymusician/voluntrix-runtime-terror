@@ -270,7 +270,7 @@ export function EventsPage() {
 
   return (
     <div className="page page-wide">
-      <PageHeader title="Events" subtitle="Create events, add activities and staff them.">
+      <PageHeader title="Events" subtitle="Create events, add activities and staff them." eyebrow="Event management">
         <button className="btn btn-primary" onClick={() => setCreating(true)}>Create event</button>
       </PageHeader>
       <div className="filters">
@@ -283,18 +283,21 @@ export function EventsPage() {
         {shown.map((e) => (
           <li key={e.id}>
             <Link className="event-card" to={`/manage/events/${e.id}`}>
-              <div className="activity-head">
-                <strong>{e.name}</strong>
+              <div className="event-card-top">
+                <div>
+                  <strong>{e.name}</strong>
+                  {e.isSampleData && <span className="tag tag-inline">sample</span>}
+                </div>
                 <StatusBadge status={e.status} />
               </div>
-              <span className="muted">
-                {formatDay(e.startDate)}
-                {e.endDate !== e.startDate && ` – ${formatDay(e.endDate)}`} · {e.venue}
-              </span>
-              <span>
-                {e.activityCount} activit{e.activityCount === 1 ? 'y' : 'ies'} · {e.positionsFilled} of {e.positionsRequired} positions filled
-              </span>
-              {e.isSampleData && <span className="tag tag-inline">sample</span>}
+              <div className="event-card-meta">
+                <span>{formatDay(e.startDate)}{e.endDate !== e.startDate && ` – ${formatDay(e.endDate)}`}</span>
+                <span>{e.venue}</span>
+              </div>
+              <div className="event-card-metrics">
+                <span>{e.activityCount} activit{e.activityCount === 1 ? 'y' : 'ies'}</span>
+                <span>{e.positionsFilled} / {e.positionsRequired} filled</span>
+              </div>
             </Link>
           </li>
         ))}
@@ -353,6 +356,29 @@ function AllocationResult({ report }: { report: AllocationReport }) {
         ))}
       </ul>
     </section>
+  );
+}
+
+function StaffingProgress({ activity }: { activity: ManagedActivity }) {
+  const confirmed = Math.min(100, (activity.confirmed / activity.requiredCount) * 100);
+  const pending = Math.min(100 - confirmed, (activity.pending / activity.requiredCount) * 100);
+
+  return (
+    <div
+      className="staffing-progress"
+      role="group"
+      aria-label={`${activity.name}: ${activity.confirmed} confirmed, ${activity.pending} awaiting confirmation, ${activity.vacancies} vacant of ${activity.requiredCount} positions`}
+    >
+      <div className="staffing-progress-track" aria-hidden="true">
+        <span className="staffing-progress-confirmed" style={{ width: `${confirmed}%` }} />
+        <span className="staffing-progress-pending" style={{ width: `${pending}%` }} />
+      </div>
+      <div className="staffing-progress-legend">
+        <span><i className="staffing-key staffing-key-confirmed" />{activity.confirmed} confirmed</span>
+        <span><i className="staffing-key staffing-key-pending" />{activity.pending} pending</span>
+        <span><i className="staffing-key staffing-key-vacant" />{activity.vacancies} vacant</span>
+      </div>
+    </div>
   );
 }
 
@@ -449,7 +475,7 @@ export function EventDetailPage() {
   return (
     <div className="page page-wide">
       <Link to="/manage/events" className="back-link">← All events</Link>
-      <PageHeader title={event.name} subtitle={`${formatDay(event.startDate)}${event.endDate !== event.startDate ? ` – ${formatDay(event.endDate)}` : ''} · ${event.venue}`}>
+      <PageHeader title={event.name} subtitle={`${formatDay(event.startDate)}${event.endDate !== event.startDate ? ` – ${formatDay(event.endDate)}` : ''} · ${event.venue}`} eyebrow="Event detail">
         <StatusBadge status={event.status} />
         <button className="btn btn-secondary" onClick={() => setEditingEvent(true)}>Edit event</button>
         <button className="btn btn-ghost" onClick={removeEvent}>Delete</button>
@@ -497,6 +523,7 @@ export function EventDetailPage() {
                   {a.minPriorEvents > 0 && ` · needs ${a.minPriorEvents} prior activit${a.minPriorEvents === 1 ? 'y' : 'ies'}`}
                   {a.requireTestPass && ' · requires a passed mock test'}
                 </p>
+                <StaffingProgress activity={a} />
                 <p>
                   <span className="muted">Required: </span><Chips items={a.requiredSkills} empty="No specific skills" />
                   {a.preferredSkills.length > 0 && <><span className="muted"> Nice to have: </span><Chips items={a.preferredSkills} /></>}

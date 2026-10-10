@@ -1,9 +1,9 @@
 import { Router, type Request, type Response } from 'express';
 import type { AppContext } from './context.js';
 import type { PromotionStatus } from './domain.js';
-import { forbidden, notFound } from './errors.js';
+import { badRequest, forbidden, notFound } from './errors.js';
 import { createMiddleware, currentUser } from './middleware.js';
-import { FacultyProfile, Notification, RoleAuditLog, StudentProfile, User } from './models.js';
+import { ChatMessage, ChatThread, FacultyProfile, Notification, RoleAuditLog, StudentProfile, User } from './models.js';
 import * as accounts from './services/accounts.js';
 import * as promotion from './services/promotion.js';
 import { inspectPhoto } from './storage/photoStorage.js';
@@ -122,6 +122,97 @@ export function createRoutes(ctx: AppContext) {
         readAt: n.readAt,
         createdAt: n.createdAt,
       })),
+    });
+  });
+
+  const serializeThread = async (thread: any, currentUserId: string) => {
+    const otherId = thread.participants.find((id: unknown) => id?.toString() !== currentUserId);
+    const otherUser = otherId ? await User.findById(otherId).select('fullName username role email phone photoKey accountStatus') : null;
+    const lastMessage = await ChatMessage.findOne({ threadId: thread._id }).sort({ createdAt: -1 }).lean();
+    return {
+      id: thread._id.toString(),
+      participants: thread.participants.map((id: { toString: () => string }) => id.toString()),
+      participant: otherUser ? accounts.publicUser(otherUser) : null,
+      lastMessage: lastMessage ? { id: lastMessage._id.toString(), senderId: lastMessage.senderId.toString(), content: lastMessage.content, createdAt: lastMessage.createdAt } : null,
+      updatedAt: thread.updatedAt,
+    };
+  };
+
+  router.get('/chat/contacts', requireAuth, async (req, res) => {
+    const user = currentUser(req);
+    const users = await User.find({ _id: { $ne: user._id }, accountStatus: 'active' }).sort({ fullName: 1 }).select('fullName username email phone role photoKey accountStatus createdAt');
+    res.json({
+      contacts: users.map((u) => ({
+        ...accounts.publicUser(u),
+      })),
+    });
+  });
+
+  router.get('/chats', requireAuth, async (req, res) => {
+    const user = currentUser(req);
+    const threads = await ChatThread.find({ participants: user._id }).sort({ lastMessageAt: -1, updatedAt: -1 });
+    res.json({
+      threads: await Promise.all(threads.map((thread) => serializeThread(thread, user._id.toString()))),
+    });
+  });
+
+  router.post('/chats', requireAuth, async (req, res) => {
+    const user = currentUser(req);
+    const { participantId } = parse(schemas.chatStart, req.body);
+    if (participantId === user.id) throw badRequest('Choose another person to start a chat', { participantId: 'Choose another person to start a chat' });
+    const otherUser = await User.findById(participantId);
+    if (!otherUser) throw notFound('User not found');
+
+    let thread = await ChatThread.findOne({ participants: { $all: [user._id, otherUser._id], $size: 2 } });
+    let created = false;
+    if (!thread) {
+      thread = await ChatThread.create({ participants: [user._id, otherUser._id], lastMessageAt: new Date() });
+      created = true;
+    }
+
+    res.status(created ? 201 : 200).json({ thread: await serializeThread(thread, user._id.toString()) });
+  });
+
+  router.get('/chats/:id/messages', requireAuth, async (req, res) => {
+    const user = currentUser(req);
+    const thread = await ChatThread.findById(idParam(req));
+    if (!thread) throw notFound();
+    if (!thread.participants.some((id) => id.equals(user._id))) throw forbidden('This chat does not belong to your account');
+
+    const messages = await ChatMessage.find({ threadId: thread._id }).sort({ createdAt: 1 }).lean();
+    const senders = await User.find({ _id: { $in: messages.map((m) => m.senderId) } }).select('fullName username role');
+    const senderMap = new Map(senders.map((s) => [s._id.toString(), { id: s._id.toString(), fullName: s.fullName, username: s.username, role: s.role }]));
+
+    res.json({
+      threadId: thread._id.toString(),
+      messages: messages.map((message) => ({
+        id: message._id.toString(),
+        senderId: message.senderId.toString(),
+        sender: senderMap.get(message.senderId.toString()) ?? null,
+        content: message.content,
+        createdAt: message.createdAt,
+      })),
+    });
+  });
+
+  router.post('/chats/:id/messages', requireAuth, mw.sensitiveLimiter, async (req, res) => {
+    const user = currentUser(req);
+    const thread = await ChatThread.findById(idParam(req));
+    if (!thread) throw notFound();
+    if (!thread.participants.some((id) => id.equals(user._id))) throw forbidden('This chat does not belong to your account');
+    const { content } = parse(schemas.chatMessage, req.body);
+
+    const message = await ChatMessage.create({ threadId: thread._id, senderId: user._id, content });
+    thread.lastMessageAt = new Date();
+    await thread.save();
+
+    res.status(201).json({
+      message: {
+        id: message._id.toString(),
+        senderId: user._id.toString(),
+        content: message.content,
+        createdAt: message.createdAt,
+      },
     });
   });
 

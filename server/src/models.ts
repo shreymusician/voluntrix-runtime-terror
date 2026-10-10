@@ -149,6 +149,30 @@ const notificationSchema = new Schema(
 notificationSchema.index({ userId: 1, createdAt: -1 });
 export const Notification = mongoose.model('Notification', notificationSchema);
 
+// ------------------------------------------------------------- direct chat
+const chatThreadSchema = new Schema(
+  {
+    participants: { type: [ref('User')], required: true, validate: [(v: unknown[]) => v.length === 2, 'Chat threads must have exactly two participants'] },
+    lastMessageAt: { type: Date, default: Date.now },
+  },
+  { timestamps: true },
+);
+chatThreadSchema.index({ participants: 1, updatedAt: -1 });
+chatThreadSchema.index({ lastMessageAt: -1 });
+export const ChatThread = mongoose.model('ChatThread', chatThreadSchema);
+
+const chatMessageSchema = new Schema(
+  {
+    threadId: ref('ChatThread'),
+    senderId: ref('User'),
+    content: { type: String, required: true, trim: true, maxlength: 2000 },
+  },
+  { timestamps: { createdAt: true, updatedAt: false } },
+);
+chatMessageSchema.index({ threadId: 1, createdAt: -1 });
+chatMessageSchema.index({ senderId: 1, createdAt: -1 });
+export const ChatMessage = mongoose.model('ChatMessage', chatMessageSchema);
+
 // -------------------------------------------------------------- sessions
 const sessionSchema = new Schema(
   {

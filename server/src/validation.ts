@@ -74,6 +74,8 @@ export function buildSchemas(config: AppConfig) {
     promotionRequestCreate: z.object({ statement: z.string().trim().max(1000).default(''), usn: usn.optional() }).strict(),
     promotionListQuery: z.object({ status: z.enum(PROMOTION_STATUSES).optional() }),
     promotionDecision: z.object({ decision: z.enum(PROMOTION_DECISIONS), reason }).strict(),
+    chatStart: z.object({ participantId: objectId }).strict(),
+    chatMessage: z.object({ content: z.string().trim().min(1).max(2000) }).strict(),
 
   };
 }

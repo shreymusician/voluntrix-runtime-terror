@@ -59,56 +59,60 @@ export function LoginPage() {
       </aside>
 
       <main className="auth-panel">
-        <form className="auth-form" onSubmit={submit} noValidate>
-          <h1>Sign in</h1>
-          <p className="muted">Choose how you are signing in.</p>
+        <div className="auth-form-shell">
+          <form className="auth-form" onSubmit={submit} noValidate>
+            <div className="auth-form-header">
+              <h1>Sign in</h1>
+              <p className="muted">Choose how you are signing in.</p>
+            </div>
 
-          {notice && <Alert kind="success">{notice}</Alert>}
+            {notice && <Alert kind="success">{notice}</Alert>}
 
-          <div className="role-picker" role="radiogroup" aria-label="Sign in as">
-            {ROLE_OPTIONS.map((option) => (
-              <label key={option.role} className={`role-option${role === option.role ? ' role-option-active' : ''}`}>
-                <input
-                  type="radio"
-                  name="role"
-                  value={option.role}
-                  checked={role === option.role}
-                  onChange={() => {
-                    setRole(option.role);
-                    setError(null);
-                  }}
-                />
-                <span className="role-label">{option.label}</span>
-                <span className="role-blurb">{option.blurb}</span>
-              </label>
-            ))}
-          </div>
+            <div className="role-picker" role="radiogroup" aria-label="Sign in as">
+              {ROLE_OPTIONS.map((option) => (
+                <label key={option.role} className={`role-option${role === option.role ? ' role-option-active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="role"
+                    value={option.role}
+                    checked={role === option.role}
+                    onChange={() => {
+                      setRole(option.role);
+                      setError(null);
+                    }}
+                  />
+                  <span className="role-label">{option.label}</span>
+                  <span className="role-blurb">{option.blurb}</span>
+                </label>
+              ))}
+            </div>
 
-          <Field label="Username" name="username" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
-          <Field
-            label="Password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+            <Field label="Username" name="username" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
+            <Field
+              label="Password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
 
-          {error && (
-            <Alert kind="error">
-              <strong>{error.message}</strong>
-              {error.hint && <p>{error.hint}</p>}
-            </Alert>
-          )}
+            {error && (
+              <Alert kind="error">
+                <strong>{error.message}</strong>
+                {error.hint && <p>{error.hint}</p>}
+              </Alert>
+            )}
 
-          <button className="btn btn-primary btn-block" disabled={busy}>
-            {busy ? 'Signing in…' : `Sign in as ${ROLE_OPTIONS.find((o) => o.role === role)?.label}`}
-          </button>
+            <button className="btn btn-primary btn-block" disabled={busy}>
+              {busy ? 'Signing in…' : `Sign in as ${ROLE_OPTIONS.find((o) => o.role === role)?.label}`}
+            </button>
 
-          <p className="auth-switch">
-            New to VOLUNTRIX? <Link to="/register">Create an account</Link>
-          </p>
-        </form>
+            <p className="auth-switch">
+              New to VOLUNTRIX? <Link to="/register">Create an account</Link>
+            </p>
+          </form>
+        </div>
       </main>
     </div>
   );

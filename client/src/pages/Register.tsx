@@ -110,62 +110,66 @@ export function RegisterPage() {
       </aside>
 
       <main className="auth-panel">
-        <form className="auth-form" onSubmit={submit} noValidate>
-          <h1>Create your account</h1>
-
-          <div className="tabs" role="tablist" aria-label="Account type">
-            {(['student', 'faculty'] as Kind[]).map((k) => (
-              <button key={k} type="button" role="tab" aria-selected={kind === k} className={`tab${kind === k ? ' tab-active' : ''}`} onClick={() => switchKind(k)}>
-                Register as {k === 'student' ? 'Student' : 'Faculty'}
-              </button>
-            ))}
-          </div>
-
-          {kind === 'faculty' && <Alert kind="info">Use your faculty ID and official institutional email. Both are checked before the account is created.</Alert>}
-
-          <Field label="Full name" autoComplete="name" {...bind('fullName')} />
-          <div className="field-row">
-            {kind === 'student' ? (
-              <Field label="USN" hint="University Seat Number, e.g. 1RV21CS001" autoCapitalize="characters" {...bind('idNumber')} />
-            ) : (
-              <Field label="Faculty ID" autoCapitalize="characters" {...bind('idNumber')} />
-            )}
-            <Field label="Phone number" type="tel" autoComplete="tel" {...bind('phone')} />
-          </div>
-          <Field
-            label={kind === 'student' ? 'Email' : 'Institutional email'}
-            type="email"
-            autoComplete="email"
-            hint={kind === 'faculty' ? 'Must be your official institution address' : undefined}
-            {...bind('email')}
-          />
-
-          <div className={`field${errors.photo ? ' field-invalid' : ''}`}>
-            <label htmlFor="f-photo">
-              Profile photo <span className="muted">(optional)</span>
-            </label>
-            <div className="photo-picker">
-              {preview ? <img className="avatar avatar-lg" src={preview} alt="Selected profile photo preview" /> : <span className="avatar avatar-lg avatar-initials" aria-hidden="true" />}
-              <input id="f-photo" type="file" accept={PHOTO_TYPES.join(',')} onChange={pickPhoto} />
+        <div className="auth-form-shell">
+          <form className="auth-form" onSubmit={submit} noValidate>
+            <div className="auth-form-header">
+              <h1>Create your account</h1>
             </div>
-            <p className={errors.photo ? 'field-error' : 'field-hint'}>{errors.photo ?? 'JPEG, PNG or WebP, up to 2 MB'}</p>
-          </div>
 
-          <Field label="Username" autoComplete="username" hint="You will sign in with this" {...bind('username')} />
-          <div className="field-row">
-            <Field label="Password" type="password" autoComplete="new-password" {...bind('password')} />
-            <Field label="Confirm password" type="password" autoComplete="new-password" {...bind('confirmPassword')} />
-          </div>
+            <div className="tabs" role="tablist" aria-label="Account type">
+              {(['student', 'faculty'] as Kind[]).map((k) => (
+                <button key={k} type="button" role="tab" aria-selected={kind === k} className={`tab${kind === k ? ' tab-active' : ''}`} onClick={() => switchKind(k)}>
+                  Register as {k === 'student' ? 'Student' : 'Faculty'}
+                </button>
+              ))}
+            </div>
 
-          {formError && <Alert kind="error">{formError}</Alert>}
+            {kind === 'faculty' && <Alert kind="info">Use your faculty ID and official institutional email. Both are checked before the account is created.</Alert>}
 
-          <button className="btn btn-primary btn-block" disabled={busy}>
-            {busy ? 'Creating account…' : `Create ${kind} account`}
-          </button>
-          <p className="auth-switch">
-            Already registered? <Link to="/login">Sign in</Link>
-          </p>
-        </form>
+            <Field label="Full name" autoComplete="name" {...bind('fullName')} />
+            <div className="field-row">
+              {kind === 'student' ? (
+                <Field label="USN" hint="University Seat Number, e.g. 1RV21CS001" autoCapitalize="characters" {...bind('idNumber')} />
+              ) : (
+                <Field label="Faculty ID" autoCapitalize="characters" {...bind('idNumber')} />
+              )}
+              <Field label="Phone number" type="tel" autoComplete="tel" {...bind('phone')} />
+            </div>
+            <Field
+              label={kind === 'student' ? 'Email' : 'Institutional email'}
+              type="email"
+              autoComplete="email"
+              hint={kind === 'faculty' ? 'Must be your official institution address' : undefined}
+              {...bind('email')}
+            />
+
+            <div className={`field${errors.photo ? ' field-invalid' : ''}`}>
+              <label htmlFor="f-photo">
+                Profile photo <span className="muted">(optional)</span>
+              </label>
+              <div className="photo-picker">
+                {preview ? <img className="avatar avatar-lg" src={preview} alt="Selected profile photo preview" /> : <span className="avatar avatar-lg avatar-initials" aria-hidden="true" />}
+                <input id="f-photo" type="file" accept={PHOTO_TYPES.join(',')} onChange={pickPhoto} />
+              </div>
+              <p className={errors.photo ? 'field-error' : 'field-hint'}>{errors.photo ?? 'JPEG, PNG or WebP, up to 2 MB'}</p>
+            </div>
+
+            <Field label="Username" autoComplete="username" hint="You will sign in with this" {...bind('username')} />
+            <div className="field-row">
+              <Field label="Password" type="password" autoComplete="new-password" {...bind('password')} />
+              <Field label="Confirm password" type="password" autoComplete="new-password" {...bind('confirmPassword')} />
+            </div>
+
+            {formError && <Alert kind="error">{formError}</Alert>}
+
+            <button className="btn btn-primary btn-block" disabled={busy}>
+              {busy ? 'Creating account…' : `Create ${kind} account`}
+            </button>
+            <p className="auth-switch">
+              Already registered? <Link to="/login">Sign in</Link>
+            </p>
+          </form>
+        </div>
       </main>
     </div>
   );

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import type { Role } from './api';
 import { homeFor, useAuth } from './auth';
-import { Logo, Spinner } from './components';
+import { Icon, Logo, Spinner } from './components';
 import { FacultyPage } from './pages/Faculty';
 import { LoginPage } from './pages/Login';
 import { RegisterPage } from './pages/Register';
@@ -10,42 +10,46 @@ import { EventDetailPage, EventsPage } from './pages/manage/Events';
 import { ManageAssignmentsPage, ManagerDashboard, VolunteersPage } from './pages/manage/ManagePages';
 import { ProfilePage } from './pages/student/Profile';
 import { PerformancePage, QuestionsPage } from './pages/manage/Performance';
+import { ChatPage } from './pages/Chat';
 import { ActivitiesPage, AssignmentsPage, NotificationsPage, SchedulePage, StudentDashboard } from './pages/student/StudentPages';
 import { AttemptPage, FeedbackPage, StudentLeaderboardPage, TestsPage } from './pages/student/Tests';
 
 const ROLE_NAMES: Record<Role, string> = { student: 'Student', faculty: 'Faculty', organizer: 'Organizer' };
 
-const NAV: Record<Role, { to: string; label: string; end?: boolean }[]> = {
+const NAV: Record<Role, { to: string; label: string; end?: boolean; icon: 'dashboard' | 'profile' | 'skills' | 'calendar' | 'tests' | 'leaderboard' | 'activity' | 'assignment' | 'feedback' | 'bell' | 'events' | 'users' | 'shield' | 'chat' }[]> = {
   student: [
-    { to: '/student', label: 'Dashboard', end: true },
-    { to: '/student/profile', label: 'My Profile' },
-    { to: '/student/skills', label: 'My Skills' },
-    { to: '/student/availability', label: 'My Availability' },
-    { to: '/student/tests', label: 'Mock Tests' },
-    { to: '/student/leaderboard', label: 'Leaderboard' },
-    { to: '/student/activities', label: 'Available Activities' },
-    { to: '/student/assignments', label: 'My Assignments' },
-    { to: '/student/schedule', label: 'My Schedule' },
-    { to: '/student/feedback', label: 'My Feedback' },
-    { to: '/student/notifications', label: 'Notifications' },
+    { to: '/student', label: 'Dashboard', end: true, icon: 'dashboard' },
+    { to: '/student/profile', label: 'My Profile', icon: 'profile' },
+    { to: '/student/skills', label: 'My Skills', icon: 'skills' },
+    { to: '/student/availability', label: 'My Availability', icon: 'calendar' },
+    { to: '/student/tests', label: 'Mock Tests', icon: 'tests' },
+    { to: '/student/leaderboard', label: 'Leaderboard', icon: 'leaderboard' },
+    { to: '/student/activities', label: 'Available Activities', icon: 'activity' },
+    { to: '/student/assignments', label: 'My Assignments', icon: 'assignment' },
+    { to: '/student/schedule', label: 'My Schedule', icon: 'calendar' },
+    { to: '/student/feedback', label: 'My Feedback', icon: 'feedback' },
+    { to: '/student/notifications', label: 'Notifications', icon: 'bell' },
+    { to: '/chat', label: 'Chat', icon: 'chat' },
   ],
   faculty: [
-    { to: '/faculty', label: 'Dashboard', end: true },
-    { to: '/manage/events', label: 'Events' },
-    { to: '/manage/volunteers', label: 'Volunteers' },
-    { to: '/manage/assignments', label: 'Assignments' },
-    { to: '/manage/performance', label: 'Performance' },
-    { to: '/faculty/questions', label: 'Question Bank' },
-    { to: '/faculty/promotions', label: 'Promotions' },
-    { to: '/manage/notifications', label: 'Notifications' },
+    { to: '/faculty', label: 'Dashboard', end: true, icon: 'dashboard' },
+    { to: '/manage/events', label: 'Events', icon: 'events' },
+    { to: '/manage/volunteers', label: 'Volunteers', icon: 'users' },
+    { to: '/manage/assignments', label: 'Assignments', icon: 'assignment' },
+    { to: '/manage/performance', label: 'Performance', icon: 'leaderboard' },
+    { to: '/faculty/questions', label: 'Question Bank', icon: 'tests' },
+    { to: '/faculty/promotions', label: 'Promotions', icon: 'shield' },
+    { to: '/manage/notifications', label: 'Notifications', icon: 'bell' },
+    { to: '/chat', label: 'Chat', icon: 'chat' },
   ],
   organizer: [
-    { to: '/organizer', label: 'Dashboard', end: true },
-    { to: '/manage/events', label: 'My Events' },
-    { to: '/manage/volunteers', label: 'Volunteers' },
-    { to: '/manage/assignments', label: 'Assignments' },
-    { to: '/manage/performance', label: 'Performance' },
-    { to: '/manage/notifications', label: 'Notifications' },
+    { to: '/organizer', label: 'Dashboard', end: true, icon: 'dashboard' },
+    { to: '/manage/events', label: 'My Events', icon: 'events' },
+    { to: '/manage/volunteers', label: 'Volunteers', icon: 'users' },
+    { to: '/manage/assignments', label: 'Assignments', icon: 'assignment' },
+    { to: '/manage/performance', label: 'Performance', icon: 'leaderboard' },
+    { to: '/manage/notifications', label: 'Notifications', icon: 'bell' },
+    { to: '/chat', label: 'Chat', icon: 'chat' },
   ],
 };
 
@@ -89,8 +93,9 @@ function Shell({ children }: { children: ReactNode }) {
             {me.user.fullName}
             <span className={`role-chip role-chip-${me.user.role}`}>{ROLE_NAMES[me.user.role]}</span>
           </span>
-          <button className="btn btn-ghost btn-sm" onClick={signOut}>
-            Sign out
+          <button className="btn btn-ghost btn-sm btn-icon" onClick={signOut}>
+            <Icon name="logout" />
+            <span>Sign out</span>
           </button>
         </div>
       </header>
@@ -99,7 +104,8 @@ function Shell({ children }: { children: ReactNode }) {
           <nav className="sidenav" aria-label="Main">
             {NAV[me.user.role].map((item) => (
               <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `sidenav-link${isActive ? ' sidenav-link-active' : ''}`}>
-                {item.label}
+                <span className="nav-icon"><Icon name={item.icon} /></span>
+                <span>{item.label}</span>
               </NavLink>
             ))}
           </nav>
@@ -138,6 +144,7 @@ export function App() {
       <Route path="/student/tests/:id" element={student(<AttemptPage />)} />
       <Route path="/student/leaderboard" element={student(<StudentLeaderboardPage />)} />
       <Route path="/student/feedback" element={student(<FeedbackPage />)} />
+      <Route path="/chat" element={<Protected roles={['student', 'faculty', 'organizer']}><ChatPage /></Protected>} />
 
       <Route path="/faculty" element={<Protected roles={['faculty']}><ManagerDashboard /></Protected>} />
       <Route path="/faculty/promotions" element={<Protected roles={['faculty']}><FacultyPage /></Protected>} />
