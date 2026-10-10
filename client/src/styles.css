@@ -1272,6 +1272,11 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   --brand: #69d8c2;
   --brand-2: #51b9c5;
   --brand-3: #e9ad6d;
+  --tone-blue: #91bdff;
+  --tone-green: #7cdbad;
+  --tone-coral: #ff9d91;
+  --tone-violet: #c3a8ec;
+  --tone-amber: #f2c179;
   --brand-ink: #09211e;
   --brand-soft: rgba(105, 216, 194, 0.13);
   --accent: #e9ad6d;
@@ -1382,8 +1387,41 @@ body {
 .topbar { background: rgba(15, 24, 28, 0.97); backdrop-filter: none; }
 .card { box-shadow: var(--glow); backdrop-filter: none; }
 .stat { background: var(--surface); }
-.stat::before { background: linear-gradient(180deg, var(--brand), var(--brand-3)); }
+.stat { --stat-accent: var(--brand); background: color-mix(in srgb, var(--stat-accent) 7%, var(--surface)); border-color: color-mix(in srgb, var(--stat-accent) 22%, var(--line)); }
+.stat::before { background: var(--stat-accent); }
+.stat dd { color: var(--stat-accent); }
+.stat-brand { --stat-accent: var(--brand); }
+.stat-info { --stat-accent: var(--tone-blue); }
+.stat-good { --stat-accent: var(--tone-green); }
+.stat-warn { --stat-accent: var(--tone-amber); }
+.stat-bad { --stat-accent: var(--tone-coral); }
+.stat-violet { --stat-accent: var(--tone-violet); }
 .btn-primary { box-shadow: 0 8px 22px rgba(49, 160, 147, 0.18); }
+
+.role-picker .role-option { --role-accent: var(--tone-blue); border-inline-start: 3px solid var(--role-accent); background: color-mix(in srgb, var(--role-accent) 7%, var(--surface)); }
+.role-picker .role-option:nth-child(2) { --role-accent: var(--brand); }
+.role-picker .role-option:nth-child(3) { --role-accent: var(--tone-amber); }
+.role-picker .role-label { color: color-mix(in srgb, var(--role-accent) 72%, var(--ink)); }
+.role-picker .role-option-active { background: color-mix(in srgb, var(--role-accent) 13%, var(--surface)); border-color: color-mix(in srgb, var(--role-accent) 40%, var(--line)); border-inline-start-color: var(--role-accent); }
+.role-picker .role-option-active .role-label { color: var(--role-accent); }
+
+.role-chip-student { color: var(--tone-blue); background: color-mix(in srgb, var(--tone-blue) 14%, transparent); }
+.role-chip-faculty { color: var(--brand); background: var(--brand-soft); }
+.role-chip-organizer { color: var(--tone-amber); background: color-mix(in srgb, var(--tone-amber) 15%, transparent); }
+
+.badge-pending { color: var(--tone-amber); background: color-mix(in srgb, var(--tone-amber) 14%, var(--surface)); }
+.badge-needs_review { color: var(--tone-amber); background: color-mix(in srgb, var(--tone-amber) 14%, var(--surface)); }
+.badge-approved, .badge-active, .badge-confirmed, .badge-published, .badge-open { color: var(--tone-green); background: color-mix(in srgb, var(--tone-green) 13%, var(--surface)); }
+.badge-rejected, .badge-suspended, .badge-conflict { color: var(--tone-coral); background: color-mix(in srgb, var(--tone-coral) 13%, var(--surface)); }
+.badge-draft, .badge-closed, .badge-completed, .badge-cancelled { color: var(--ink-2); background: var(--surface-2); }
+
+.sidenav-dashboard .nav-icon, .sidenav-calendar .nav-icon, .sidenav-events .nav-icon { color: var(--tone-blue); }
+.sidenav-profile .nav-icon, .sidenav-skills .nav-icon, .sidenav-users .nav-icon { color: var(--brand); }
+.sidenav-tests .nav-icon, .sidenav-leaderboard .nav-icon { color: var(--tone-violet); }
+.sidenav-activity .nav-icon, .sidenav-assignment .nav-icon { color: var(--tone-green); }
+.sidenav-feedback .nav-icon, .sidenav-bell .nav-icon { color: var(--tone-amber); }
+.sidenav-shield .nav-icon, .sidenav-chat .nav-icon { color: var(--tone-coral); }
+.sidenav-link-active .nav-icon { color: var(--brand); }
 
 .next-actions {
   display: grid;

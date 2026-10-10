@@ -83,13 +83,13 @@ export function ManagerDashboard() {
       {t && data && (
         <>
           <dl className="stat-grid">
-            <StatTile label="Registered volunteers" value={t.volunteers} note={`${t.volunteersWithCompleteProfile} with a complete profile`} />
-            <StatTile label="Events" value={t.events} note={`${t.activities} activities`} />
-            <StatTile label="Positions required" value={t.positionsRequired} note="In upcoming activities" />
-            <StatTile label="Positions assigned" value={t.positionsAssigned} note={`${t.positionsConfirmed} confirmed`} />
-            <StatTile label="Pending approvals" value={t.pendingApprovals} tone={t.pendingApprovals ? 'warn' : undefined} />
-            <StatTile label="Remaining vacancies" value={t.vacancies} tone={t.vacancies ? 'warn' : undefined} />
-            <StatTile label="Conflicts" value={t.conflicts} tone={t.conflicts ? 'bad' : undefined} note={t.conflicts ? 'See Assignments' : 'None detected'} />
+            <StatTile label="Registered volunteers" value={t.volunteers} note={`${t.volunteersWithCompleteProfile} with a complete profile`} tone="info" />
+            <StatTile label="Events" value={t.events} note={`${t.activities} activities`} tone="violet" />
+            <StatTile label="Positions required" value={t.positionsRequired} note="In upcoming activities" tone="brand" />
+            <StatTile label="Positions assigned" value={t.positionsAssigned} note={`${t.positionsConfirmed} confirmed`} tone="good" />
+            <StatTile label="Pending approvals" value={t.pendingApprovals} tone={t.pendingApprovals ? 'warn' : 'info'} />
+            <StatTile label="Remaining vacancies" value={t.vacancies} tone={t.vacancies ? 'warn' : 'good'} />
+            <StatTile label="Conflicts" value={t.conflicts} tone={t.conflicts ? 'bad' : 'good'} note={t.conflicts ? 'See Assignments' : 'None detected'} />
           </dl>
 
           <section className={`next-actions manager-actions${t.pendingApprovals || t.vacancies || t.conflicts ? ' manager-actions-alert' : ''}`} aria-labelledby="manager-next-actions">

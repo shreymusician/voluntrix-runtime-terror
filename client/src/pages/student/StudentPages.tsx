@@ -158,10 +158,10 @@ export function StudentDashboard() {
       {data && (
         <>
           <dl className="stat-grid">
-            <StatTile label="Profile" value={`${data.profile.completion.percent}%`} note={data.profile.complete ? 'Complete' : 'Incomplete'} tone={data.profile.complete ? undefined : 'warn'} />
-            <StatTile label="Pending proposals" value={data.pendingAssignments.length} note="Awaiting organizer confirmation" />
-            <StatTile label="Confirmed duties" value={data.confirmedAssignments.length} note={`${data.totals.upcomingHours} h upcoming`} />
-            <StatTile label="Volunteer hours" value={data.totals.completedHours} note={`${data.totals.completedActivities} activities completed`} />
+            <StatTile label="Profile" value={`${data.profile.completion.percent}%`} note={data.profile.complete ? 'Complete' : 'Incomplete'} tone={data.profile.complete ? 'good' : 'warn'} />
+            <StatTile label="Pending proposals" value={data.pendingAssignments.length} note="Awaiting organizer confirmation" tone="info" />
+            <StatTile label="Confirmed duties" value={data.confirmedAssignments.length} note={`${data.totals.upcomingHours} h upcoming`} tone="good" />
+            <StatTile label="Volunteer hours" value={data.totals.completedHours} note={`${data.totals.completedActivities} activities completed`} tone="violet" />
           </dl>
 
           <section className="next-actions" aria-labelledby="student-next-actions">

@@ -263,7 +263,7 @@ export function PageHeader({ title, subtitle, children, eyebrow }: { title: stri
   );
 }
 
-export function StatTile({ label, value, note, tone }: { label: string; value: ReactNode; note?: string; tone?: 'warn' | 'bad' }) {
+export function StatTile({ label, value, note, tone }: { label: string; value: ReactNode; note?: string; tone?: 'brand' | 'info' | 'good' | 'warn' | 'bad' | 'violet' }) {
   return (
     <div className={`stat${tone ? ` stat-${tone}` : ''}`}>
       <dt>{label}</dt>

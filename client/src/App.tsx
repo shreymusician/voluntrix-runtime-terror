@@ -103,7 +103,7 @@ function Shell({ children }: { children: ReactNode }) {
         {!setupPending && (
           <nav className="sidenav" aria-label="Main">
             {NAV[me.user.role].map((item) => (
-              <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `sidenav-link${isActive ? ' sidenav-link-active' : ''}`}>
+              <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `sidenav-link sidenav-link-${item.icon}${isActive ? ' sidenav-link-active' : ''}`}>
                 <span className="nav-icon"><Icon name={item.icon} /></span>
                 <span>{item.label}</span>
               </NavLink>
