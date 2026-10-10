@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, errorMessage, type AssignmentBase, type AvailableActivity, type Evaluation, type MyRank, type StudentDashboardData, type TestCard } from '../../api';
+import { api, errorMessage, type AssignmentBase, type AvailableActivity, type StudentDashboardData } from '../../api';
 import { useAuth } from '../../auth';
 import { Alert, Empty, Notifications, Spinner, StatusBadge, formatDate, useLoad } from '../../components';
 import { Chips, PageHeader, StatTile, formatDay, useFeedback } from '../../ui';
@@ -31,7 +31,7 @@ function AssignmentCard({ a, onCancel }: { a: AssignmentBase; onCancel?: (a: Ass
         {a.ended && a.status === 'confirmed' && (
           <p className="muted">
             Attendance: {a.attendance === 'attended' ? 'Attended' : a.attendance === 'absent' ? 'Absent' : 'Not recorded yet'}
-            {a.rating !== null && ` · Rated ${a.rating}/5 — see My Feedback`}
+            {a.rating !== null && ` · Rated ${a.rating}/5`}
           </p>
         )}
       </div>
@@ -142,13 +142,7 @@ function PromotionCard() {
 export function StudentDashboard() {
   const { me } = useAuth();
   const { data, error, loading } = useLoad(() => api<StudentDashboardData>('/student/dashboard'), []);
-  const tests = useLoad(() => api<{ tests: TestCard[]; ranks: MyRank[] }>('/student/tests'), []);
-  const feedback = useLoad(() => api<{ evaluations: Evaluation[]; average: number | null; count: number }>('/student/evaluations'), []);
-  const { data: profileData } = useLoad(() => api<{ profile: { preferences: string[] } }>('/volunteer-profile'), []);
   if (!me) return null;
-  const myTests = (tests.data?.tests ?? []).filter((x) => x.preferred);
-  const pendingTests = myTests.filter((x) => x.inProgressAttemptId || (x.canStart && !x.qualifying));
-  const takenTests = myTests.filter((x) => x.qualifying);
 
   return (
     <div className="page page-wide">
@@ -178,8 +172,8 @@ export function StudentDashboard() {
                 <span><strong>Track assignments</strong><small>{data.pendingAssignments.length ? `${data.pendingAssignments.length} awaiting organizer confirmation` : 'No proposals awaiting confirmation'}</small></span>
                 <span className="next-action-arrow" aria-hidden="true">→</span>
               </Link>
-              <Link className="next-action" to="/student/schedule">
-                <span><strong>Check your schedule</strong><small>{data.confirmedAssignments.length} confirmed duties</small></span>
+              <Link className="next-action" to="/student/assignments">
+                <span><strong>View my assignments</strong><small>{data.confirmedAssignments.length} confirmed duties</small></span>
                 <span className="next-action-arrow" aria-hidden="true">→</span>
               </Link>
             </div>
@@ -188,8 +182,7 @@ export function StudentDashboard() {
           <div className="grid-2">
             <section className="card">
               <div className="card-head">
-                <h2>Upcoming duty schedule</h2>
-                <Link to="/student/schedule">View schedule</Link>
+                <h2>Upcoming duties</h2>
               </div>
               {data.schedule.length === 0 ? (
                 <Empty title="No confirmed duties yet">Confirmed assignments appear here.</Empty>
@@ -214,11 +207,8 @@ export function StudentDashboard() {
           <div className="grid-2">
             <section className="card">
               <div className="card-head">
-                <h2>My skills</h2>
-                <Link to="/student/skills">Edit skills</Link>
+                <h2>Upcoming events</h2>
               </div>
-              <Chips items={data.profile.skills} empty="No skills added yet" />
-              <h3>Upcoming events</h3>
               {data.upcomingEvents.length === 0 ? (
                 <p className="muted">No upcoming events have been published yet.</p>
               ) : (
@@ -245,78 +235,6 @@ export function StudentDashboard() {
                 <Empty title="No open activities">Activities appear here once an event is published.</Empty>
               ) : (
                 <ul className="activity-list">{data.availableActivities.slice(0, 3).map((a) => <ActivityCard key={a.id} a={a} />)}</ul>
-              )}
-            </section>
-          </div>
-
-          <div className="grid-2">
-            <section className="card">
-              <div className="card-head">
-                <h2>Mock tests</h2>
-                <Link to="/student/tests">All tests</Link>
-              </div>
-              <p>
-                <span className="muted">Activity preferences: </span>
-                <Chips items={profileData?.profile.preferences ?? []} empty="None selected" />
-              </p>
-              {tests.error && <Alert kind="error">{tests.error}</Alert>}
-              {tests.data && myTests.length === 0 && (
-                <Empty title="No tests unlocked">Choose preferred activities in your profile to unlock their mock tests.</Empty>
-              )}
-              {pendingTests.length > 0 && (
-                <>
-                  <h3>To take</h3>
-                  <ul className="plain-list">
-                    {pendingTests.map((x) => (
-                      <li key={x.category}>
-                        <strong>{x.category}</strong>{' '}
-                        <span className="muted">· {x.inProgressAttemptId ? 'in progress' : `${x.questionCount} questions, ${x.durationMinutes} min`} · </span>
-                        <Link to={x.inProgressAttemptId ? `/student/tests/${x.inProgressAttemptId}` : '/student/tests'}>{x.inProgressAttemptId ? 'Resume' : 'Start'}</Link>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-              {takenTests.length > 0 && (
-                <>
-                  <h3>Latest scores</h3>
-                  <ul className="plain-list">
-                    {takenTests.map((x) => {
-                      const rank = tests.data?.ranks.find((r) => r.category === x.category);
-                      return (
-                        <li key={x.category}>
-                          <strong>{x.category}</strong>: {x.qualifying!.percent}% {x.qualifying!.passed ? '(passed)' : '(not passed)'}
-                          {rank?.rank && <span className="muted"> · rank {rank.rank} of {rank.total}</span>}
-                          {x.latest && <> · <Link to={`/student/tests/${x.latest.id}`}>review</Link></>}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </>
-              )}
-            </section>
-
-            <section className="card">
-              <div className="card-head">
-                <h2>Performance feedback</h2>
-                <Link to="/student/feedback">All feedback</Link>
-              </div>
-              {feedback.error && <Alert kind="error">{feedback.error}</Alert>}
-              {feedback.data && feedback.data.count === 0 && <Empty title="No history yet">Organizers evaluate volunteers after each activity. Your feedback will appear here.</Empty>}
-              {feedback.data && feedback.data.count > 0 && (
-                <>
-                  <p>
-                    Average rating <strong>{feedback.data.average} / 5</strong> across {feedback.data.count} evaluation{feedback.data.count === 1 ? '' : 's'}.
-                  </p>
-                  <ul className="plain-list">
-                    {feedback.data.evaluations.slice(0, 3).map((e) => (
-                      <li key={e.id}>
-                        <strong>{e.activity?.name ?? 'Activity'}</strong> <span className="muted">· {e.event.name} · </span>
-                        {e.overall}/5{e.feedback && <span className="muted"> — {e.feedback}</span>}
-                      </li>
-                    ))}
-                  </ul>
-                </>
               )}
             </section>
           </div>
@@ -393,51 +311,6 @@ export function AssignmentsPage() {
       {error && <Alert kind="error">{error}</Alert>}
       {data && shown.length === 0 && <Empty title="No assignments here">{filter === 'all' ? 'You have not been assigned to any activity yet.' : `You have no ${filter} assignments.`}</Empty>}
       <ul className="duty-list">{shown.map((a) => <AssignmentCard key={a.id} a={a} onCancel={cancel} />)}</ul>
-    </div>
-  );
-}
-
-export function SchedulePage() {
-  const { data, error, loading } = useLoad(() => api<{ assignments: AssignmentBase[] }>('/student/assignments'), []);
-  const confirmed = (data?.assignments ?? []).filter((a) => a.status === 'confirmed');
-  const upcoming = confirmed.filter((a) => !a.ended);
-  const past = confirmed.filter((a) => a.ended).reverse();
-  const days = [...new Set(upcoming.map((a) => a.activity.date))];
-  const hours = (list: AssignmentBase[]) => Math.round(list.reduce((sum, a) => sum + a.hours, 0) * 100) / 100;
-
-  return (
-    <div className="page">
-      <PageHeader title="My schedule" subtitle="Your confirmed duties, day by day." eyebrow="Confirmed schedule" />
-      {loading && !data && <Spinner />}
-      {error && <Alert kind="error">{error}</Alert>}
-      {data && (
-        <>
-          <dl className="stat-grid">
-            <StatTile label="Upcoming duties" value={upcoming.length} />
-            <StatTile label="Upcoming hours" value={hours(upcoming)} />
-            <StatTile label="Completed hours" value={hours(past.filter((a) => a.attendance !== 'absent'))} />
-          </dl>
-          {days.length === 0 && <Empty title="No upcoming duties">Confirmed assignments are added to your schedule automatically.</Empty>}
-          {days.map((day) => {
-            const list = upcoming.filter((a) => a.activity.date === day);
-            return (
-              <section className="card" key={day}>
-                <div className="card-head">
-                  <h2>{formatDay(day)}</h2>
-                  <span className="muted">{hours(list)} h assigned</span>
-                </div>
-                <ul className="duty-list">{list.map((a) => <AssignmentCard key={a.id} a={a} />)}</ul>
-              </section>
-            );
-          })}
-          {past.length > 0 && (
-            <section className="card">
-              <h2>Completed</h2>
-              <ul className="duty-list">{past.map((a) => <AssignmentCard key={a.id} a={a} />)}</ul>
-            </section>
-          )}
-        </>
-      )}
     </div>
   );
 }

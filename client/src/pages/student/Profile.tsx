@@ -143,8 +143,7 @@ export function ProfilePage({ focus }: { focus?: Section }) {
       if (res.profile.complete) {
         notify('success', wasComplete ? 'Profile updated.' : 'Profile complete. Welcome aboard!');
         setEditing(false);
-        // First completion leads on to choosing a mock test.
-        if (!wasComplete) navigate('/student/tests', { replace: true });
+        if (!wasComplete) navigate('/student/activities', { replace: true });
       } else {
         notify('success', 'Progress saved. Finish the remaining fields to complete your profile.');
       }
@@ -337,7 +336,7 @@ export function ProfilePage({ focus }: { focus?: Section }) {
 
       <section className="card" ref={(el) => { sections.current.preferences = el; }}>
         <h2>Activity preferences <span className="muted">(optional)</span></h2>
-        <p className="muted">Each activity you choose here unlocks its mock test. Preferred types are also favoured when several volunteers qualify; they never override skills or availability.</p>
+        <p className="muted">These preferences help prioritize relevant activities when several volunteers qualify. They never override required skills or availability.</p>
         <div className="chips">
           {meta.activityTypes.map((type) => (
             <button key={type} type="button" className={`chip${form.preferences.includes(type) ? ' chip-on' : ''}`} aria-pressed={form.preferences.includes(type)} onClick={() => togglePreference(type)}>

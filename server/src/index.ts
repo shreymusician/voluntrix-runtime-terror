@@ -1,22 +1,9 @@
 import { createApp } from './app.js';
-import { createAuthProvider } from './auth/provider.js';
-import { loadConfig } from './config/env.js';
-import { loadPromotionPolicy } from './config/promotionPolicy.js';
+import { buildContext } from './buildContext.js';
+export { buildContext } from './buildContext.js';
 import type { AppContext } from './context.js';
 import { connectDatabase } from './db.js';
 import { ensureQuestionBank } from './services/questionBank.js';
-import { createPhotoStorage } from './storage/photoStorage.js';
-
-export function buildContext(): AppContext {
-  const config = loadConfig();
-  return {
-    config,
-    auth: createAuthProvider(),
-    storage: createPhotoStorage(),
-    policy: loadPromotionPolicy(),
-    rateLimits: { enabled: true, authMax: 30, sensitiveMax: 120 },
-  };
-}
 
 export async function start(ctx: AppContext) {
   if (!ctx.config.mongoUri) throw new Error('MONGODB_URI is not set. See server/.env.example.');
