@@ -11,7 +11,8 @@
     "test": "vitest run",
     "seed:dev": "tsx src/scripts/seedDev.ts",
     "check-db": "tsx src/scripts/checkDb.ts",
-    "migrate": "tsx src/scripts/migrate.ts"
+    "migrate": "tsx src/scripts/migrate.ts",
+    "seed:opportunities": "tsx src/scripts/seedOpportunities.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

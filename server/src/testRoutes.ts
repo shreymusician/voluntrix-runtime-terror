@@ -38,6 +38,13 @@ export function createTestRoutes(ctx: AppContext, mw: ReturnType<typeof createMi
     const { category } = parse(z.object({ category: z.enum(ACTIVITY_TYPES) }).strict(), req.body);
     res.status(201).json({ attempt: await tests.startAttempt(currentUser(req), category) });
   });
+  // The eligibility-gated route: re-checks every mandatory rule for this
+  // specific activity (skills, availability, conflicts, hours, experience)
+  // against the database before unlocking its mock test. Nothing about
+  // eligibility is taken from the client beyond the activity id.
+  student.post('/activities/:id/tests/start', mw.sensitiveLimiter, async (req, res) => {
+    res.status(201).json({ attempt: await tests.startAttemptForActivity(currentUser(req), id(req)) });
+  });
   student.get('/attempts', async (req, res) => res.json({ attempts: await tests.listOwnAttempts(currentUser(req)) }));
   student.get('/attempts/:id', async (req, res) => res.json(await tests.getAttempt(currentUser(req), id(req))));
   student.put('/attempts/:id/answers', async (req, res) => res.json(await tests.saveAnswers(currentUser(req), id(req), req.body)));

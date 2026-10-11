@@ -1,9 +1,9 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { api, errorMessage, type AssignmentBase, type AvailableActivity, type StudentDashboardData } from '../../api';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { api, errorMessage, type AssignmentBase, type AvailableActivity, type StudentDashboardData, type VacancyDiscovery, type VacantOpportunity } from '../../api';
 import { useAuth } from '../../auth';
 import { Alert, Empty, Notifications, Spinner, StatusBadge, formatDate, useLoad } from '../../components';
-import { Chips, PageHeader, StatTile, formatDay, useFeedback } from '../../ui';
+import { Chips, Modal, PageHeader, StatTile, formatDay, useFeedback } from '../../ui';
 
 const PROMOTION_COPY: Record<string, string> = {
   pending: 'Your request is waiting for a faculty reviewer.',
@@ -47,7 +47,101 @@ function AssignmentCard({ a, onCancel }: { a: AssignmentBase; onCancel?: (a: Ass
   );
 }
 
-function ActivityCard({ a }: { a: AvailableActivity }) {
+/** The reason an activity shows "Not eligible" that is specifically the missing mock test, vs. everything else. */
+const otherReasons = (a: AvailableActivity) => a.reasons.filter((r) => !a.testCategory || !r.includes(`${a.testCategory} mock test`));
+
+function ActivityTestAction({ a }: { a: AvailableActivity }) {
+  const navigate = useNavigate();
+  const { notify } = useFeedback();
+  const [starting, setStarting] = useState(false);
+  if (!a.testRequired) return null;
+
+  const start = async () => {
+    setStarting(true);
+    try {
+      const res = await api<{ attempt: { id: string } }>(`/student/activities/${a.id}/tests/start`, { method: 'POST' });
+      navigate(`/student/tests/${res.attempt.id}`);
+    } catch (err) {
+      notify('error', errorMessage(err));
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  if (a.testStatus === 'locked') {
+    return (
+      <div className="test-gate test-gate-locked">
+        <span className="badge">Mock test locked</span>
+        {a.testLockedReasons.length > 0 && (
+          <ul className="reasons">
+            {a.testLockedReasons.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }
+  if (a.testStatus === 'available') {
+    return (
+      <div className="test-gate test-gate-available">
+        <span className="badge badge-approved">Eligible — Mock test available</span>
+        <button className="btn btn-primary btn-sm" onClick={start} disabled={starting}>
+          {starting ? 'Starting…' : 'Start mock test'}
+        </button>
+      </div>
+    );
+  }
+  if (a.testStatus === 'in_progress') {
+    return (
+      <div className="test-gate">
+        <Link className="btn btn-primary btn-sm" to={`/student/tests/${a.testAttemptId}`}>
+          Resume mock test
+        </Link>
+      </div>
+    );
+  }
+  if (a.testStatus === 'passed') {
+    return (
+      <div className="test-gate">
+        <span className="badge badge-approved">Mock test passed{a.testResultPercent !== null ? ` (${a.testResultPercent}%)` : ''}</span>
+      </div>
+    );
+  }
+  if (a.testStatus === 'failed') {
+    return (
+      <div className="test-gate">
+        <span className="badge">Mock test not passed{a.testResultPercent !== null ? ` (${a.testResultPercent}%)` : ''}</span>
+        <button className="btn btn-secondary btn-sm" onClick={start} disabled={starting}>
+          {starting ? 'Starting…' : 'Retake test'}
+        </button>
+      </div>
+    );
+  }
+  return null;
+}
+
+function ActivityCard({ a, onApplied }: { a: AvailableActivity; onApplied?: () => void }) {
+  const reasons = otherReasons(a);
+  const { notify } = useFeedback();
+  const [applying, setApplying] = useState(false);
+  // Offered only when the server says eligible, there is room, and no test is
+  // still outstanding. The server re-checks all of it on the request anyway.
+  const canVolunteer = a.eligible && !a.myStatus && a.vacancies > 0 && (!a.testRequired || a.testStatus === 'passed');
+
+  const apply = async () => {
+    setApplying(true);
+    try {
+      await api(`/student/activities/${a.id}/apply`, { method: 'POST' });
+      notify('success', `You have volunteered for "${a.name}". An organizer will confirm it.`);
+      onApplied?.();
+    } catch (err) {
+      notify('error', errorMessage(err));
+    } finally {
+      setApplying(false);
+    }
+  };
+
   return (
     <li className="activity-card">
       <div className="activity-head">
@@ -65,13 +159,22 @@ function ActivityCard({ a }: { a: AvailableActivity }) {
         <span className="muted">Skills needed: </span>
         <Chips items={a.requiredSkills} empty="None" />
       </p>
-      {!a.eligible && !a.myStatus && (
+      {!a.eligible && !a.myStatus && reasons.length > 0 && (
         <ul className="reasons">
-          {a.reasons.map((r) => (
+          {reasons.map((r) => (
             <li key={r}>{r}</li>
           ))}
         </ul>
       )}
+      {!a.myStatus && <ActivityTestAction a={a} />}
+      {canVolunteer && (
+        <div className="test-gate">
+          <button className="btn btn-primary btn-sm" onClick={apply} disabled={applying}>
+            {applying ? 'Submitting…' : 'Volunteer for this'}
+          </button>
+        </div>
+      )}
+      {a.eligible && !a.myStatus && a.vacancies === 0 && <p className="muted">All positions are currently filled.</p>}
     </li>
   );
 }
@@ -246,17 +349,203 @@ export function StudentDashboard() {
   );
 }
 
+// Shown once per sign-in session unless the student reopens it themselves.
+const VACANCY_POPUP_KEY = 'vtx.vacancyPopupDismissed';
+
+function OpportunityCard({ o, onApply, applying }: { o: VacantOpportunity; onApply: (o: VacantOpportunity) => void; applying: boolean }) {
+  const [open, setOpen] = useState(false);
+  const req = o.eligibilityRequirements;
+  return (
+    <li className="activity-card">
+      <div className="activity-head">
+        <div>
+          <strong>{o.name}</strong>
+          <span className="muted"> · {o.event.name}</span>
+        </div>
+        <span className={`badge ${o.eligible ? 'badge-approved' : ''}`}>{o.eligible ? 'Eligible Opportunity' : 'Explore Opportunity'}</span>
+      </div>
+      <p className="muted">
+        {formatDay(o.date)} · {o.startTime}–{o.endTime} · {o.location}
+      </p>
+      {o.description && <p>{o.description}</p>}
+      <p className="muted">
+        <strong>{o.vacancies}</strong> vacant of {o.requiredCount} needed · {o.confirmedCount} confirmed
+        {o.pendingCount > 0 ? ` · ${o.pendingCount} awaiting confirmation` : ''}
+      </p>
+      <p className="quote">{o.suggestionReason}</p>
+
+      {open && (
+        <div className="opportunity-details">
+          <p>
+            <span className="muted">Required skills: </span>
+            <Chips items={req.requiredSkills} empty="None" />
+          </p>
+          {req.preferredSkills.length > 0 && (
+            <p>
+              <span className="muted">Nice to have (never required): </span>
+              <Chips items={req.preferredSkills} empty="None" />
+            </p>
+          )}
+          <ul className="plain-list muted">
+            {req.minPriorEvents > 0 && <li>Needs at least {req.minPriorEvents} previously attended activities</li>}
+            {req.requiresTestPass && <li>Needs a passed {req.testCategory} mock test</li>}
+            <li>
+              You must be free on {formatDay(req.schedule.date)} from {req.schedule.startTime} to {req.schedule.endTime}
+            </li>
+          </ul>
+          {!o.eligible && (
+            <>
+              <p className="muted">Why you do not qualify yet:</p>
+              <ul className="reasons">
+                {o.reasons.map((r) => (
+                  <li key={r}>{r}</li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+
+      <div className="test-gate">
+        <button className="btn btn-secondary btn-sm" onClick={() => setOpen((v) => !v)}>
+          {open ? 'Hide details' : 'View Details'}
+        </button>
+        {o.eligible ? (
+          <button className="btn btn-primary btn-sm" onClick={() => onApply(o)} disabled={applying}>
+            {applying ? 'Submitting…' : 'Volunteer for this'}
+          </button>
+        ) : (
+          <span className="muted">Meet the requirements above to volunteer.</span>
+        )}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * Shown only once the server has confirmed the student qualifies for none of
+ * the open activities. Vacancies are suggestions, never permission: each one
+ * is labelled with its own eligibility and only eligible ones can be applied for.
+ */
+function VacancyPopup({ data, onClose, onApplied }: { data: VacancyDiscovery; onClose: () => void; onApplied: () => void }) {
+  const { notify } = useFeedback();
+  const [applying, setApplying] = useState<string | null>(null);
+
+  const apply = async (o: VacantOpportunity) => {
+    setApplying(o.id);
+    try {
+      await api(`/student/activities/${o.id}/apply`, { method: 'POST' });
+      notify('success', `You have volunteered for "${o.name}". An organizer will confirm it.`);
+      onApplied();
+      onClose();
+    } catch (err) {
+      // The server re-checks everything on apply; surface exactly what it said.
+      notify('error', errorMessage(err));
+    } finally {
+      setApplying(null);
+    }
+  };
+
+  return (
+    <Modal title="Let's Find a Place for You!" onClose={onClose} wide>
+      <div className="dialog-body">
+        <p>
+          You don't currently meet the requirements for our available activities. However, some activities still have vacant volunteer positions. Explore these
+          opportunities to see whether you qualify and would like to participate.
+        </p>
+        {data.opportunities.length === 0 ? (
+          <Empty title="No vacant positions right now">
+            There are no unfilled volunteer positions at the moment. Try adding more{' '}
+            <Link to="/student/profile">skills or preferences</Link> or widening your <Link to="/student/availability">availability</Link>, and check again when new
+            activities are published.
+          </Empty>
+        ) : (
+          <>
+            {!data.opportunities.some((o) => o.eligible) && (
+              <Alert kind="warn">
+                None of the vacant positions match your profile yet. Each one below lists what it needs, so you can see what to add to your{' '}
+                <Link to="/student/profile">profile</Link> or <Link to="/student/availability">availability</Link>.
+              </Alert>
+            )}
+            <ul className="activity-list">
+              {data.opportunities.map((o) => (
+                <OpportunityCard key={o.id} o={o} onApply={apply} applying={applying === o.id} />
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+      <div className="row-actions">
+        <button className="btn btn-secondary" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 export function ActivitiesPage() {
-  const { data, error, loading } = useLoad(() => api<{ activities: AvailableActivity[] }>('/student/activities'), []);
+  const { data, error, loading, reload } = useLoad(() => api<{ activities: AvailableActivity[] }>('/student/activities'), []);
   const [onlyEligible, setOnlyEligible] = useState(false);
   const [query, setQuery] = useState('');
+  const [vacancies, setVacancies] = useState<VacancyDiscovery | null>(null);
+  const [popupOpen, setPopupOpen] = useState(false);
+
+  // Sort eligible first, then the student's own preferences, then soonest.
   const shown = (data?.activities ?? [])
     .filter((a) => !onlyEligible || a.eligible)
-    .filter((a) => !query.trim() || `${a.name} ${a.event.name} ${a.requiredSkills.join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()));
+    .filter((a) => !query.trim() || `${a.name} ${a.event.name} ${a.requiredSkills.join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()))
+    .slice()
+    .sort((a, b) => Number(b.eligible) - Number(a.eligible) || a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+
+  // Only the server's verdict decides this. While loading, or when the request
+  // failed, `data` is null and nothing is claimed about the student either way.
+  const openActivities = (data?.activities ?? []).filter((a) => !a.myStatus);
+  // A student who already holds a place has somewhere to volunteer, so they are
+  // never told they are "not eligible for anything" just because the remaining
+  // activities clash with the duty they just took on.
+  const hasPlace = (data?.activities ?? []).some((a) => a.myStatus);
+  const noneEligible = Boolean(data) && !hasPlace && openActivities.length > 0 && openActivities.every((a) => !a.eligible);
+
+  useEffect(() => {
+    if (!noneEligible) return;
+    let cancelled = false;
+    void api<VacancyDiscovery>('/student/vacancies')
+      .then((res) => {
+        if (cancelled) return;
+        setVacancies(res);
+        // The server re-confirms there is genuinely nothing they qualify for.
+        if (!res.eligibleForAnyActivity && sessionStorage.getItem(VACANCY_POPUP_KEY) !== '1') setPopupOpen(true);
+      })
+      // A failed lookup must never be turned into a claim about eligibility.
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [noneEligible]);
+
+  const closePopup = () => {
+    sessionStorage.setItem(VACANCY_POPUP_KEY, '1');
+    setPopupOpen(false);
+  };
 
   return (
     <div className="page">
-      <PageHeader title="Available activities" subtitle="Open volunteer positions in published events. Organizers assign volunteers who qualify; you will be notified if you are proposed." eyebrow="Student opportunities" />
+      <PageHeader title="Available activities" subtitle="Open volunteer positions in published events. Volunteer for the ones you qualify for; an organizer confirms each place." eyebrow="Student opportunities" />
+      {noneEligible && (
+        <Alert kind="warn">
+          <strong>You're not eligible for any available activities right now.</strong>
+          <p>Each activity below lists exactly what it needs. You can also look at positions that are still unfilled.</p>
+          <div className="row-actions">
+            <button className="btn btn-primary btn-sm" onClick={() => setPopupOpen(true)} disabled={!vacancies}>
+              {vacancies ? 'Show vacant positions' : 'Checking vacancies…'}
+            </button>
+            <Link className="btn btn-secondary btn-sm" to="/student/profile">
+              Update my profile
+            </Link>
+          </div>
+        </Alert>
+      )}
       <div className="filters">
         <input aria-label="Search activities" placeholder="Search by activity, event or skill" value={query} onChange={(e) => setQuery(e.target.value)} />
         <label className="check">
@@ -264,9 +553,20 @@ export function ActivitiesPage() {
         </label>
       </div>
       {loading && !data && <Spinner />}
-      {error && <Alert kind="error">{error}</Alert>}
+      {/* A failed request is an error to retry, never "you are not eligible". */}
+      {error && (
+        <Alert kind="error">
+          {error}
+          <div className="row-actions">
+            <button className="btn btn-secondary btn-sm" onClick={() => void reload()}>
+              Try again
+            </button>
+          </div>
+        </Alert>
+      )}
       {data && shown.length === 0 && <Empty title="No activities to show">{data.activities.length ? 'Nothing matches your filters.' : 'No open activities have been published yet.'}</Empty>}
-      <ul className="activity-list">{shown.map((a) => <ActivityCard key={a.id} a={a} />)}</ul>
+      <ul className="activity-list">{shown.map((a) => <ActivityCard key={a.id} a={a} onApplied={reload} />)}</ul>
+      {popupOpen && vacancies && <VacancyPopup data={vacancies} onClose={closePopup} onApplied={reload} />}
     </div>
   );
 }

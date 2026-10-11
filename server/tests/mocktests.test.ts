@@ -10,6 +10,7 @@ import {
   createVolunteer,
   eventPayload,
   loginAs,
+  profilePayload,
   useTestApp,
   type VolunteerOptions,
 } from './helpers.js';
@@ -459,6 +460,123 @@ describe('allocation uses test results without overriding hard rules', () => {
       expect(manual.body.details.violations[0].code).toBe('TEST_REQUIRED');
     }
     expect(await Assignment.countDocuments()).toBe(1);
+  });
+});
+
+describe('activity-gated mock test access', () => {
+  async function activityRequiringTest(overrides: Record<string, unknown> = {}) {
+    const faculty = await facultyAgent();
+    const event = (await faculty.agent.post('/api/manage/events').send(eventPayload()).expect(201)).body.event;
+    const activity = (
+      await faculty.agent
+        .post(`/api/manage/events/${event.id}/activities`)
+        .send(activityPayload({ activityType: TECH, requireTestPass: true, requiredSkills: ['Communication'], ...overrides }))
+        .expect(201)
+    ).body.activity;
+    return { faculty, event, activity };
+  }
+
+  it('never unlocks the test for a student who is not otherwise eligible for the activity', async () => {
+    const { activity } = await activityRequiringTest({ requiredSkills: ['Programming'] });
+    const student = await tester(); // only has 'Communication', not the required 'Programming'
+
+    const res = await student.agent.post(`/api/student/activities/${activity.id}/tests/start`).expect(403);
+    expect(res.body.code).toBe('NOT_ELIGIBLE_FOR_ACTIVITY');
+    expect(res.body.error).toMatch(/Programming/);
+    expect(await TestAttempt.countDocuments({ studentId: student.id })).toBe(0);
+  });
+
+  it('unlocks exactly 10 questions tied to the activity for a student who is otherwise eligible', async () => {
+    const { activity } = await activityRequiringTest();
+    const student = await tester();
+
+    const res = await student.agent.post(`/api/student/activities/${activity.id}/tests/start`).expect(201);
+    expect(res.body.attempt.category).toBe(TECH);
+    expect(res.body.attempt.questions).toHaveLength(10);
+
+    const attempt = await TestAttempt.findById(res.body.attempt.id);
+    expect(String(attempt!.activityId)).toBe(activity.id);
+  });
+
+  it('refuses to start a test for an activity with no category attached', async () => {
+    const faculty = await facultyAgent();
+    const event = (await faculty.agent.post('/api/manage/events').send(eventPayload()).expect(201)).body.event;
+    const activity = (await faculty.agent.post(`/api/manage/events/${event.id}/activities`).send(activityPayload()).expect(201)).body.activity;
+    const student = await tester();
+
+    const res = await student.agent.post(`/api/student/activities/${activity.id}/tests/start`).expect(400);
+    expect(res.body.code).toBe('NO_TEST_CATEGORY');
+  });
+
+  it('refuses to start a test for an activity that has a category but does not require passing it', async () => {
+    const faculty = await facultyAgent();
+    const event = (await faculty.agent.post('/api/manage/events').send(eventPayload()).expect(201)).body.event;
+    const activity = (
+      await faculty.agent.post(`/api/manage/events/${event.id}/activities`).send(activityPayload({ activityType: TECH, requireTestPass: false })).expect(201)
+    ).body.activity;
+    const student = await tester();
+
+    const res = await student.agent.post(`/api/student/activities/${activity.id}/tests/start`).expect(400);
+    expect(res.body.code).toBe('TEST_NOT_REQUIRED');
+  });
+
+  it('lists the activity as test-locked while ineligible, then available once the blocking requirement is met', async () => {
+    const { activity } = await activityRequiringTest({ requiredSkills: ['Programming'] });
+    const student = await tester();
+
+    const before = (await student.agent.get('/api/student/activities').expect(200)).body.activities;
+    const lockedCard = before.find((a: { id: string }) => a.id === activity.id);
+    expect(lockedCard.testStatus).toBe('locked');
+    expect(lockedCard.testLockedReasons.join(' ')).toMatch(/Programming/);
+
+    await student.agent.put('/api/volunteer-profile').send(profilePayload({ skills: ['Communication', 'Programming'], preferences: [TECH] })).expect(200);
+
+    const after = (await student.agent.get('/api/student/activities').expect(200)).body.activities;
+    const unlockedCard = after.find((a: { id: string }) => a.id === activity.id);
+    expect(unlockedCard.testStatus).toBe('available');
+  });
+
+  it('marks the activity as eligible once the unlocked test is passed', async () => {
+    const { activity } = await activityRequiringTest();
+    const student = await tester();
+    const started = await student.agent.post(`/api/student/activities/${activity.id}/tests/start`).expect(201);
+    const attempt = await TestAttempt.findById(started.body.attempt.id);
+    const answers = attempt!.questions.map((q) => ({ questionId: String(q.questionId), selectedIndex: q.correctIndex }));
+    await student.agent.post(`/api/student/attempts/${started.body.attempt.id}/submit`).send({ answers }).expect(200);
+
+    const list = (await student.agent.get('/api/student/activities').expect(200)).body.activities;
+    const card = list.find((a: { id: string }) => a.id === activity.id);
+    expect(card.testStatus).toBe('passed');
+    expect(card.eligible).toBe(true);
+  });
+
+  it('blocks submitting the test once the student is no longer eligible for the activity that unlocked it', async () => {
+    const { faculty, activity } = await activityRequiringTest();
+    const student = await tester();
+    const started = await student.agent.post(`/api/student/activities/${activity.id}/tests/start`).expect(201);
+
+    await faculty.agent.delete(`/api/manage/activities/${activity.id}`).expect(200);
+
+    const attempt = await TestAttempt.findById(started.body.attempt.id);
+    const answers = attempt!.questions.map((q) => ({ questionId: String(q.questionId), selectedIndex: q.correctIndex }));
+    const res = await student.agent.post(`/api/student/attempts/${started.body.attempt.id}/submit`).send({ answers }).expect(409);
+    expect(res.body.code).toBe('NOT_ELIGIBLE_FOR_ACTIVITY');
+    expect((await TestAttempt.findById(started.body.attempt.id))!.status).toBe('in_progress');
+  });
+
+  it('returns 404 for an activity that does not exist and 409 for one that is closed', async () => {
+    const { faculty, activity } = await activityRequiringTest();
+    const student = await tester();
+
+    const missing = await student.agent.post('/api/student/activities/000000000000000000000000/tests/start').expect(404);
+    expect(missing.body.code).toBe('NOT_FOUND');
+
+    await faculty.agent
+      .put(`/api/manage/activities/${activity.id}`)
+      .send(activityPayload({ activityType: TECH, requireTestPass: true, requiredSkills: ['Communication'], status: 'closed' }))
+      .expect(200);
+    const closed = await student.agent.post(`/api/student/activities/${activity.id}/tests/start`).expect(409);
+    expect(closed.body.code).toBe('ACTIVITY_NOT_OPEN');
   });
 });
 

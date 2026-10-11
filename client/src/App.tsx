@@ -12,6 +12,7 @@ import { ProfilePage } from './pages/student/Profile';
 import { PerformancePage, QuestionsPage } from './pages/manage/Performance';
 import { ChatPage } from './pages/Chat';
 import { ActivitiesPage, AssignmentsPage, NotificationsPage, StudentDashboard } from './pages/student/StudentPages';
+import { AttemptPage, FeedbackPage, StudentLeaderboardPage, TestsPage } from './pages/student/Tests';
 
 const ROLE_NAMES: Record<Role, string> = { student: 'Student', faculty: 'Faculty', organizer: 'Organizer' };
 
@@ -22,6 +23,9 @@ const NAV: Record<Role, { to: string; label: string; end?: boolean; icon: 'dashb
     { to: '/student/availability', label: 'My Availability', icon: 'calendar' },
     { to: '/student/activities', label: 'Available Activities', icon: 'activity' },
     { to: '/student/assignments', label: 'My Assignments', icon: 'assignment' },
+    { to: '/student/tests', label: 'Mock Tests', icon: 'tests' },
+    { to: '/student/leaderboard', label: 'Leaderboard', icon: 'leaderboard' },
+    { to: '/student/feedback', label: 'My Feedback', icon: 'feedback' },
     { to: '/student/notifications', label: 'Notifications', icon: 'bell' },
     { to: '/chat', label: 'Chat', icon: 'chat' },
   ],
@@ -131,6 +135,10 @@ export function App() {
       <Route path="/student/availability" element={student(<ProfilePage focus="availability" />)} />
       <Route path="/student/activities" element={student(<ActivitiesPage />)} />
       <Route path="/student/assignments" element={student(<AssignmentsPage />)} />
+      <Route path="/student/tests" element={student(<TestsPage />)} />
+      <Route path="/student/tests/:id" element={student(<AttemptPage />)} />
+      <Route path="/student/leaderboard" element={student(<StudentLeaderboardPage />)} />
+      <Route path="/student/feedback" element={student(<FeedbackPage />)} />
       <Route path="/student/notifications" element={student(<NotificationsPage />)} />
       <Route path="/chat" element={<Protected roles={['student', 'faculty', 'organizer']}><ChatPage /></Protected>} />
 

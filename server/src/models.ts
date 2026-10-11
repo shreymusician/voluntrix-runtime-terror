@@ -12,6 +12,7 @@ import {
   OPEN_PROMOTION_STATUSES,
   PROMOTION_STATUSES,
   ROLES,
+  SESSION_SCOPES,
   VERIFICATION_STATUSES,
 } from './domain.js';
 
@@ -182,6 +183,9 @@ const sessionSchema = new Schema(
     // Role the user was authorized for at login. If the account's role later
     // changes, the session stops being valid and the user must sign in again.
     role: { type: String, enum: ROLES, required: true },
+    // 'general' sessions come from the USN sign-in and are read-only; they are
+    // confined to the /general endpoints by enforceSessionScope.
+    scope: { type: String, enum: SESSION_SCOPES, required: true, default: 'full' },
     expiresAt: { type: Date, required: true },
     revokedAt: { type: Date, default: null },
   },
@@ -232,6 +236,11 @@ const activitySchema = new Schema(
     startAt: { type: Date, required: true },
     endAt: { type: Date, required: true },
     location: { type: String, required: true, trim: true },
+    // Optional map point for the venue. When set, the live-location view can
+    // show how far each volunteer is from where they are meant to be; when
+    // not set, distance is simply reported as unavailable.
+    latitude: { type: Number, default: null, min: -90, max: 90 },
+    longitude: { type: Number, default: null, min: -180, max: 180 },
     requiredSkills: { type: [String], default: [] },
     requiredSkillKeys: { type: [String], default: [] },
     preferredSkills: { type: [String], default: [] },
@@ -351,6 +360,10 @@ const testAttemptSchema = new Schema(
   {
     studentId: ref('User'),
     category: { type: String, required: true },
+    // Set when this attempt was unlocked from a specific activity's eligibility
+    // check (as opposed to the general preference-based practice flow). Used to
+    // re-validate eligibility at submission time.
+    activityId: ref('Activity', false),
     attemptNumber: { type: Number, required: true },
     status: { type: String, enum: ATTEMPT_STATUSES, required: true, default: 'in_progress' },
     startedAt: { type: Date, required: true },
@@ -429,3 +442,61 @@ const ratingAuditSchema = new Schema(
 );
 ratingAuditSchema.index({ evaluationId: 1, createdAt: 1 });
 export const RatingAudit = mongoose.model('RatingAudit', ratingAuditSchema);
+
+// ------------------------------------------------- studentVerifications
+/**
+ * One-time codes for the USN sign-in. Only a hash of the code is stored, and
+ * the code is always delivered to the contact already on file for that USN —
+ * never to an address supplied with the request — so possessing someone
+ * else's USN is not enough to sign in as them.
+ */
+const studentVerificationSchema = new Schema(
+  {
+    usn: { type: String, required: true, uppercase: true, trim: true },
+    userId: ref('User'),
+    codeHash: { type: String, required: true },
+    expiresAt: { type: Date, required: true },
+    // Wrong guesses; the code is burned once this reaches the limit.
+    attempts: { type: Number, required: true, default: 0 },
+    consumedAt: { type: Date, default: null },
+  },
+  { timestamps: { createdAt: true, updatedAt: false } },
+);
+// Codes clean themselves up shortly after they stop being usable.
+studentVerificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 3600 });
+studentVerificationSchema.index({ usn: 1, createdAt: -1 });
+export type StudentVerificationDoc = HydratedDocument<InferSchemaType<typeof studentVerificationSchema>>;
+export const StudentVerification = mongoose.model('StudentVerification', studentVerificationSchema);
+
+// ----------------------------------------------------- volunteerLocations
+/**
+ * A volunteer's live position while they are on duty. One document per
+ * assignment. Nothing is written unless the volunteer explicitly starts
+ * sharing, and a position only counts as live while `endedAt` is null, the
+ * session has not expired and the last update is recent — so a location is
+ * never shown after sharing stops or the shift ends.
+ */
+const volunteerLocationSchema = new Schema(
+  {
+    assignmentId: { ...ref('Assignment'), unique: true },
+    studentId: ref('User'),
+    eventId: ref('Event'),
+    activityId: ref('Activity'),
+    latitude: { type: Number, required: true, min: -90, max: 90 },
+    longitude: { type: Number, required: true, min: -180, max: 180 },
+    /** Reported GPS accuracy in metres, when the browser supplies it. */
+    accuracyMetres: { type: Number, default: null },
+    /** Recorded when the volunteer pressed "share"; the consent timestamp. */
+    startedAt: { type: Date, required: true },
+    updatedAt: { type: Date, required: true },
+    /** Sharing lapses on its own at this point even if the volunteer forgets. */
+    expiresAt: { type: Date, required: true },
+    /** Set when the volunteer stops sharing. A stopped record is never shown. */
+    endedAt: { type: Date, default: null },
+  },
+  { timestamps: { createdAt: true, updatedAt: false } },
+);
+volunteerLocationSchema.index({ eventId: 1, endedAt: 1, expiresAt: 1 });
+volunteerLocationSchema.index({ studentId: 1 });
+export type VolunteerLocationDoc = HydratedDocument<InferSchemaType<typeof volunteerLocationSchema>>;
+export const VolunteerLocation = mongoose.model('VolunteerLocation', volunteerLocationSchema);

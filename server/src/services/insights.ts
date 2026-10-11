@@ -2,11 +2,12 @@ import { hoursBetween, localToday } from '../catalog.js';
 import type { AppContext } from '../context.js';
 import { ACTIVE_ASSIGNMENT_STATUSES } from '../domain.js';
 import { forbidden } from '../errors.js';
-import { Activity, Assignment, Event, StudentProfile, User, type UserDoc } from '../models.js';
+import { Activity, Assignment, Event, StudentProfile, TestAttempt, User, type UserDoc } from '../models.js';
 import { findIssues, listOwnAssignments } from './assignments.js';
 import { activityBlocker, checkVolunteer, loadVolunteers } from './eligibility.js';
 import { isManager, managedEventFilter, seatCounts, serializeActivity, serializeEvent } from './events.js';
 import { totalLoad } from './scoring.js';
+import { loadQualifyingResults, resultKey } from './tests.js';
 import { getOwnProfile } from './volunteerProfile.js';
 
 const round = (n: number) => Math.round(n * 100) / 100;
@@ -26,11 +27,48 @@ export async function listAvailableActivities(student: UserDoc) {
   const counts = await seatCounts(activities.map((a) => a._id));
   const me = (await loadVolunteers({ studentIds: [student._id] })).get(student.id as string);
 
+  // Only needed for activities that actually gate on a mock test.
+  const testCategories = [...new Set(activities.filter((a) => a.requireTestPass && a.activityType).map((a) => a.activityType!))];
+  const [qualifying, inProgress] = await Promise.all([
+    testCategories.length ? loadQualifyingResults({ studentIds: [student._id] }) : Promise.resolve(new Map()),
+    testCategories.length ? TestAttempt.find({ studentId: student._id, category: { $in: testCategories }, status: 'in_progress' }) : Promise.resolve([]),
+  ]);
+  const inProgressByCategory = new Map(inProgress.map((a) => [a.category, a]));
+
   return activities.map((activity) => {
     const event = eventById.get(String(activity.eventId))!;
     const c = counts(activity.id as string);
     const mine = me?.seats.find((s) => s.activityId === activity.id);
-    const reasons = me ? checkVolunteer(me, activity).filter((v) => v.code !== 'ALREADY_ASSIGNED').map((v) => v.message) : ['Not a student account'];
+    const violations = me ? checkVolunteer(me, activity).filter((v) => v.code !== 'ALREADY_ASSIGNED') : null;
+    const reasons = violations ? violations.map((v) => v.message) : ['Not a student account'];
+
+    // Test gating: independent of overall eligibility above, this answers
+    // "is the mock test for THIS activity unlocked", i.e. does the student
+    // satisfy every rule except possibly the test pass itself.
+    const testRequired = Boolean(activity.requireTestPass && activity.activityType);
+    let testStatus: 'not_required' | 'locked' | 'available' | 'in_progress' | 'passed' | 'failed' = 'not_required';
+    let testLockedReasons: string[] = [];
+    let testAttemptId: string | null = null;
+    let testResultPercent: number | null = null;
+    if (testRequired) {
+      const category = activity.activityType!;
+      const nonTestViolations = me ? checkVolunteer(me, activity, undefined, ['TEST_REQUIRED', 'ALREADY_ASSIGNED']) : null;
+      const best = qualifying.get(resultKey(student.id as string, category));
+      const running = inProgressByCategory.get(category);
+      if (!nonTestViolations || nonTestViolations.length) {
+        testStatus = 'locked';
+        testLockedReasons = nonTestViolations?.map((v) => v.message) ?? ['Not a student account'];
+      } else if (running) {
+        testStatus = 'in_progress';
+        testAttemptId = running.id as string;
+      } else if (best) {
+        testStatus = best.passed ? 'passed' : 'failed';
+        testResultPercent = best.percent;
+      } else {
+        testStatus = 'available';
+      }
+    }
+
     return {
       ...serializeActivity(activity),
       event: { id: event.id as string, name: event.name, venue: event.venue },
@@ -38,8 +76,94 @@ export async function listAvailableActivities(student: UserDoc) {
       myStatus: mine?.status ?? null,
       eligible: reasons.length === 0,
       reasons,
+      testRequired,
+      testCategory: testRequired ? activity.activityType : null,
+      testStatus,
+      testLockedReasons,
+      testAttemptId,
+      testResultPercent,
     };
   });
+}
+
+/**
+ * Vacancy discovery for a student the open activities do not currently suit.
+ *
+ * Every activity that is published, open, upcoming and still has unfilled
+ * positions is evaluated independently against the same mandatory rules used
+ * everywhere else. A vacancy is never treated as eligibility: activities the
+ * student qualifies for come first as `eligible` opportunities, the rest are
+ * returned as `explore` with the real reasons they do not yet qualify.
+ */
+export async function listVacantOpportunities(student: UserDoc) {
+  const now = new Date();
+  const events = await Event.find({ status: 'published' });
+  const eventById = new Map(events.map((e) => [e.id as string, e]));
+  const activities = await Activity.find({ eventId: { $in: events.map((e) => e._id) }, status: 'open', endAt: { $gt: now } }).sort({ startAt: 1 });
+  const counts = await seatCounts(activities.map((a) => a._id));
+  const me = (await loadVolunteers({ studentIds: [student._id] })).get(student.id as string);
+
+  const opportunities = activities
+    .map((activity) => {
+      const event = eventById.get(String(activity.eventId))!;
+      const c = counts(activity.id as string);
+      const vacancies = Math.max(0, activity.requiredCount - c.pending - c.confirmed);
+      const held = me?.seats.find((s) => s.activityId === activity.id);
+      const violations = me ? checkVolunteer(me, activity) : null;
+      // A seat the student already holds is not an "opportunity" to discover.
+      const blocking = (violations ?? []).filter((v) => v.code !== 'ALREADY_ASSIGNED');
+      const eligible = Boolean(violations) && blocking.length === 0 && !held;
+      const matchesPreference = Boolean(activity.activityType && me?.preferences.includes(activity.activityType));
+
+      return {
+        ...serializeActivity(activity),
+        event: { id: event.id as string, name: event.name, venue: event.venue },
+        requiredCount: activity.requiredCount,
+        confirmedCount: c.confirmed,
+        pendingCount: c.pending,
+        vacancies,
+        myStatus: held?.status ?? null,
+        eligible,
+        kind: eligible ? ('eligible' as const) : ('explore' as const),
+        reasons: blocking.map((v) => v.message),
+        matchesPreference,
+        suggestionReason: eligible
+          ? matchesPreference
+            ? `You meet every requirement and this matches your ${activity.activityType} preference. ${vacancies} position${vacancies === 1 ? '' : 's'} still open.`
+            : `You meet every requirement for this activity and ${vacancies} position${vacancies === 1 ? '' : 's'} ${vacancies === 1 ? 'is' : 'are'} still open.`
+          : `${vacancies} position${vacancies === 1 ? '' : 's'} still open, but you do not meet all the requirements yet.`,
+        // Everything a student must satisfy to take this on, shown as-is.
+        eligibilityRequirements: {
+          requiredSkills: activity.requiredSkills,
+          preferredSkills: activity.preferredSkills,
+          minPriorEvents: activity.minPriorEvents ?? 0,
+          requiresTestPass: Boolean(activity.requireTestPass),
+          testCategory: activity.requireTestPass ? (activity.activityType ?? null) : null,
+          schedule: { date: activity.date, startTime: activity.startTime, endTime: activity.endTime, location: activity.location },
+        },
+      };
+    })
+    .filter((o) => o.vacancies > 0 && !o.myStatus);
+
+  // Eligible first, then preference matches, then soonest.
+  opportunities.sort(
+    (a, b) =>
+      Number(b.eligible) - Number(a.eligible) ||
+      Number(b.matchesPreference) - Number(a.matchesPreference) ||
+      a.date.localeCompare(b.date) ||
+      a.startTime.localeCompare(b.startTime),
+  );
+
+  const all = await listAvailableActivities(student);
+  return {
+    // Whether ANY open upcoming activity is currently within reach, which is
+    // what decides if the student needs the discovery popup at all. Holding a
+    // place already counts: someone who has just volunteered is not stranded
+    // merely because the remaining activities clash with that duty.
+    eligibleForAnyActivity: all.some((a) => a.eligible || a.myStatus),
+    opportunities,
+    totalVacancies: opportunities.reduce((sum, o) => sum + o.vacancies, 0),
+  };
 }
 
 export async function studentDashboard(ctx: AppContext, student: UserDoc) {

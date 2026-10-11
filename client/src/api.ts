@@ -258,6 +258,41 @@ export interface AvailableActivity extends Activity {
   myStatus: 'pending' | 'confirmed' | null;
   eligible: boolean;
   reasons: string[];
+  testRequired: boolean;
+  testCategory: string | null;
+  /** 'locked' = still has other unmet requirements; 'available' = otherwise eligible, test not yet taken. */
+  testStatus: 'not_required' | 'locked' | 'available' | 'in_progress' | 'passed' | 'failed';
+  testLockedReasons: string[];
+  testAttemptId: string | null;
+  testResultPercent: number | null;
+}
+
+/** A vacant position offered by the discovery popup. A vacancy is never eligibility. */
+export interface VacantOpportunity extends Activity {
+  event: { id: string; name: string; venue: string };
+  confirmedCount: number;
+  pendingCount: number;
+  vacancies: number;
+  myStatus: 'pending' | 'confirmed' | null;
+  eligible: boolean;
+  kind: 'eligible' | 'explore';
+  reasons: string[];
+  matchesPreference: boolean;
+  suggestionReason: string;
+  eligibilityRequirements: {
+    requiredSkills: string[];
+    preferredSkills: string[];
+    minPriorEvents: number;
+    requiresTestPass: boolean;
+    testCategory: string | null;
+    schedule: { date: string; startTime: string; endTime: string; location: string };
+  };
+}
+
+export interface VacancyDiscovery {
+  eligibleForAnyActivity: boolean;
+  opportunities: VacantOpportunity[];
+  totalVacancies: number;
 }
 
 export interface StudentDashboardData {

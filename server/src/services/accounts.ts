@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import mongoose from 'mongoose';
 import type { AppContext } from '../context.js';
-import type { Role } from '../domain.js';
+import type { Role, SessionScope } from '../domain.js';
 import { HttpError, conflict, forbidden } from '../errors.js';
 import { FacultyProfile, Session, StudentProfile, User, type UserDoc } from '../models.js';
 import { inspectPhoto } from '../storage/photoStorage.js';
@@ -144,14 +144,23 @@ export async function login(ctx: AppContext, input: { username: string; password
     throw forbidden('This account is not active', 'ACCOUNT_INACTIVE');
   }
 
-  const token = randomBytes(32).toString('base64url');
-  const expiresAt = new Date(Date.now() + ctx.config.sessionTtlHours * 3600_000);
-  await Session.create({ tokenHash: hashToken(token), userId: user._id, role: user.role, expiresAt });
-  return { user, token, expiresAt };
+  return { user, ...(await createSession(ctx, user, 'full')) };
 }
 
-/** Resolves a session cookie to its user, or null if it is not valid any more. */
-export async function resolveSession(token: string): Promise<UserDoc | null> {
+/**
+ * Issues an opaque session token. `scope` decides how much the session may
+ * do: 'general' sessions are read-only and confined to the /general
+ * endpoints, which is enforced centrally in enforceSessionScope.
+ */
+export async function createSession(ctx: AppContext, user: UserDoc, scope: SessionScope) {
+  const token = randomBytes(32).toString('base64url');
+  const expiresAt = new Date(Date.now() + ctx.config.sessionTtlHours * 3600_000);
+  await Session.create({ tokenHash: hashToken(token), userId: user._id, role: user.role, scope, expiresAt });
+  return { token, expiresAt };
+}
+
+/** Resolves a session cookie to its user and scope, or null if it is not valid any more. */
+export async function resolveSessionContext(token: string): Promise<{ user: UserDoc; scope: SessionScope } | null> {
   const session = await Session.findOne({ tokenHash: hashToken(token) });
   if (!session || session.revokedAt || session.expiresAt.getTime() <= Date.now()) return null;
   const user = await User.findById(session.userId);
@@ -159,7 +168,12 @@ export async function resolveSession(token: string): Promise<UserDoc | null> {
   // A role change (promotion, revocation) invalidates sessions opened under
   // the old role; the user signs in again through the matching login option.
   if (user.role !== session.role) return null;
-  return user;
+  return { user, scope: (session.scope ?? 'full') as SessionScope };
+}
+
+/** Resolves a session cookie to its user, or null if it is not valid any more. */
+export async function resolveSession(token: string): Promise<UserDoc | null> {
+  return (await resolveSessionContext(token))?.user ?? null;
 }
 
 export async function logout(token: string) {

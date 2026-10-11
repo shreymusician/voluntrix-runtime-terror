@@ -57,7 +57,15 @@ export function createVolunteerRoutes(ctx: AppContext, mw: ReturnType<typeof cre
   student.use(requireAuth, requireRole('student'));
   student.get('/dashboard', async (req, res) => res.json(await insights.studentDashboard(ctx, currentUser(req))));
   student.get('/activities', async (req, res) => res.json({ activities: await insights.listAvailableActivities(currentUser(req)) }));
+  // Vacant positions to explore when nothing currently suits the student.
+  // Eligibility is evaluated per activity here too; a vacancy never implies one.
+  student.get('/vacancies', async (req, res) => res.json(await insights.listVacantOpportunities(currentUser(req))));
   student.get('/assignments', async (req, res) => res.json({ assignments: await assignments.listOwnAssignments(currentUser(req)) }));
+  // Volunteering for an activity. Eligibility, capacity, conflicts and
+  // duplicates are all re-checked on the server inside one transaction.
+  student.post('/activities/:id/apply', mw.sensitiveLimiter, async (req, res) => {
+    res.status(201).json({ assignment: await assignments.applyForActivity(currentUser(req), id(req)) });
+  });
   student.post('/assignments/:id/cancel', mw.sensitiveLimiter, async (req, res) => {
     const { reason } = parse(reasonBody, req.body);
     res.json({ assignment: await assignments.cancelOwnAssignment(currentUser(req), id(req), reason) });

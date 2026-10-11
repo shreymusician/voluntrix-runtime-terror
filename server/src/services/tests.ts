@@ -2,12 +2,16 @@ import { randomInt } from 'node:crypto';
 import type { Types } from 'mongoose';
 import { z } from 'zod';
 import { ACTIVITY_TYPES, type ActivityCategory } from '../catalog.js';
-import { badRequest, conflict, forbidden, notFound } from '../errors.js';
-import { Question, StudentProfile, TestAttempt, type TestAttemptDoc, type UserDoc } from '../models.js';
+import { badRequest, conflict, forbidden, HttpError, notFound } from '../errors.js';
+import { Activity, Event, Question, StudentProfile, TestAttempt, type ActivityDoc, type QuestionDoc, type TestAttemptDoc, type UserDoc } from '../models.js';
+import { activityBlocker, checkVolunteer, loadVolunteers } from './eligibility.js';
 import { loadTestSettings, type TestSettings } from './questionBank.js';
 
 /** Allowance for network delay between the browser timer reaching zero and the request arriving. */
 const SUBMIT_GRACE_MS = 10_000;
+
+/** Exactly how many questions an activity-gated assessment carries, regardless of the category's configured practice-test length. */
+const ACTIVITY_TEST_QUESTION_COUNT = 10;
 const WEAK_TOPIC_PERCENT = 60;
 
 function shuffle<T>(items: T[]): T[] {
@@ -257,16 +261,107 @@ export async function startAttempt(student: UserDoc, category: ActivityCategory)
     throw conflict(`You have used all ${config.maxAttempts} attempt${config.maxAttempts === 1 ? '' : 's'} for this test`, 'NO_ATTEMPTS_LEFT');
   }
 
+  return createAttempt(student, category, questions, existing.length, config.questionCount, config.durationMinutes, config.passingPercent);
+}
+
+/**
+ * Loads the activity and its event, and confirms the activity is open to
+ * volunteering (not cancelled, closed or already ended) — never trusting
+ * anything about eligibility from the client.
+ */
+async function loadOpenActivity(activityId: string) {
+  const activity = await Activity.findById(activityId);
+  if (!activity) throw notFound('Activity not found');
+  const event = await Event.findById(activity.eventId);
+  if (!event) throw notFound('Activity not found');
+  const blocked = activityBlocker(activity, event);
+  if (blocked) throw conflict(blocked, 'ACTIVITY_NOT_OPEN');
+  return { activity, event };
+}
+
+/**
+ * Re-checks every mandatory rule for this activity except the mock-test
+ * pass itself (that is exactly what this test unlocks) — required skills,
+ * availability, schedule conflicts, daily hours, prior-experience and
+ * profile completeness all still apply. Throws if anything else is unmet,
+ * so a student can never reach a test for an activity they do not
+ * otherwise qualify for.
+ */
+async function testEligibilityViolations(student: UserDoc, activity: ActivityDoc) {
+  const volunteer = (await loadVolunteers({ studentIds: [student._id] })).get(student.id as string);
+  if (!volunteer) return null; // not a student account
+  return checkVolunteer(volunteer, activity, undefined, ['TEST_REQUIRED', 'ALREADY_ASSIGNED']);
+}
+
+async function requireTestEligible(student: UserDoc, activity: ActivityDoc) {
+  const violations = await testEligibilityViolations(student, activity);
+  if (violations === null) throw forbidden('Only student accounts can take mock tests');
+  if (violations.length) {
+    throw forbidden(`Not eligible for this activity yet: ${violations.map((v) => v.message).join('; ')}`, 'NOT_ELIGIBLE_FOR_ACTIVITY');
+  }
+}
+
+async function isStillTestEligible(student: UserDoc, activity: ActivityDoc) {
+  const violations = await testEligibilityViolations(student, activity);
+  return violations !== null && violations.length === 0;
+}
+
+/**
+ * Starts (or resumes) the mock test unlocked by a specific activity. Unlike
+ * `startAttempt`, access is never based on the client's claim of eligibility
+ * or on the student merely preferring the category: every mandatory rule
+ * for this exact activity is re-checked against the database first, and
+ * exactly `ACTIVITY_TEST_QUESTION_COUNT` questions are drawn for it.
+ */
+export async function startAttemptForActivity(student: UserDoc, activityId: string) {
+  const { activity } = await loadOpenActivity(activityId);
+  if (!activity.activityType) throw new HttpError(400, 'NO_TEST_CATEGORY', 'This activity has no test category');
+  if (!activity.requireTestPass) throw new HttpError(400, 'TEST_NOT_REQUIRED', 'This activity does not require a mock test');
+  await requireTestEligible(student, activity);
+
+  const category = activity.activityType as ActivityCategory;
+  await closeExpiredAttempts({ studentId: student._id, category });
+  const [settings, questions, existing] = await Promise.all([
+    loadTestSettings(),
+    Question.find({ category, active: true }),
+    TestAttempt.find({ studentId: student._id, category }).sort({ attemptNumber: 1 }),
+  ]);
+  const config = settings.get(category)!;
+  if (!config.active) throw forbidden('This test is not open at the moment', 'TEST_NOT_PERMITTED');
+  if (questions.length < ACTIVITY_TEST_QUESTION_COUNT) {
+    throw conflict(`This category needs at least ${ACTIVITY_TEST_QUESTION_COUNT} active questions configured before it can be taken`, 'INSUFFICIENT_QUESTIONS');
+  }
+
+  const open = existing.find((a) => a.status === 'in_progress');
+  if (open) return runningView(open);
+  if (existing.length >= config.maxAttempts) {
+    throw conflict(`You have used all ${config.maxAttempts} attempt${config.maxAttempts === 1 ? '' : 's'} for this test`, 'NO_ATTEMPTS_LEFT');
+  }
+
+  return createAttempt(student, category, questions, existing.length, ACTIVITY_TEST_QUESTION_COUNT, config.durationMinutes, config.passingPercent, activity._id);
+}
+
+async function createAttempt(
+  student: UserDoc,
+  category: ActivityCategory,
+  questions: QuestionDoc[],
+  attemptsSoFar: number,
+  questionCount: number,
+  durationMinutes: number,
+  passingPercent: number,
+  activityId?: Types.ObjectId,
+) {
   const now = new Date();
-  const picked = shuffle(questions).slice(0, config.questionCount);
+  const picked = shuffle(questions).slice(0, questionCount);
   try {
     const attempt = await TestAttempt.create({
       studentId: student._id,
       category,
-      attemptNumber: existing.length + 1,
+      activityId: activityId ?? null,
+      attemptNumber: attemptsSoFar + 1,
       startedAt: now,
-      deadlineAt: new Date(now.getTime() + config.durationMinutes * 60_000),
-      passingPercent: config.passingPercent,
+      deadlineAt: new Date(now.getTime() + durationMinutes * 60_000),
+      passingPercent,
       questions: picked.map((q) => {
         // Options are shuffled per attempt; the key is stored against the shuffled order.
         const order = shuffle(q.options.map((_, i) => i));
@@ -350,6 +445,18 @@ export async function saveAnswers(student: UserDoc, attemptId: string, body: unk
 export async function submitAttempt(student: UserDoc, attemptId: string, body: unknown) {
   const attempt = await ownAttempt(student, attemptId);
   if (attempt.status !== 'in_progress') throw conflict('This test has already been submitted', 'ALREADY_SUBMITTED');
+  // If eligibility for the activity that unlocked this test has changed
+  // since it started (e.g. the activity was cancelled, or another
+  // assignment now conflicts with it), the submission is refused. The
+  // attempt stays open and is still closed safely by the deadline.
+  if (attempt.activityId) {
+    const activity = await Activity.findById(attempt.activityId);
+    const event = activity ? await Event.findById(activity.eventId) : null;
+    const stillOpen = activity && event && !activityBlocker(activity, event);
+    if (!stillOpen || !(await isStillTestEligible(student, activity!))) {
+      throw conflict('You are no longer eligible for the activity this test was for, so it cannot be submitted.', 'NOT_ELIGIBLE_FOR_ACTIVITY');
+    }
+  }
   // Answers arriving after the deadline are not counted; what was saved in time is.
   if (body && typeof body === 'object' && Object.keys(body).length) {
     if (inTime(attempt)) applyAnswers(attempt, body);

@@ -73,3 +73,12 @@ export type AttemptStatus = (typeof ATTEMPT_STATUSES)[number];
 /** The six criteria of a post-event performance evaluation, each rated 1-5. */
 export const EVALUATION_CRITERIA = ['taskCompletion', 'punctuality', 'communication', 'teamwork', 'responsibility', 'problemSolving'] as const;
 export type EvaluationCriterion = (typeof EVALUATION_CRITERIA)[number];
+
+/**
+ * What a session is allowed to do. `full` is a normal sign-in with the
+ * account's own role. `general` is the lightweight USN sign-in used by the
+ * student information dashboard: the same user record, but read-only and
+ * confined to the general endpoints (see `enforceSessionScope`).
+ */
+export const SESSION_SCOPES = ['full', 'general'] as const;
+export type SessionScope = (typeof SESSION_SCOPES)[number];

@@ -1,5 +1,5 @@
 import type { ClientSession, Types } from 'mongoose';
-import { hoursBetween, toMinutes } from '../catalog.js';
+import { hoursBetween, skillKey, toMinutes } from '../catalog.js';
 import { ACTIVE_ASSIGNMENT_STATUSES } from '../domain.js';
 import { Activity, Assignment, PerformanceEvaluation, StudentProfile, User, type ActivityDoc, type EventDoc, type UserDoc } from '../models.js';
 import { loadQualifyingResults } from './tests.js';
@@ -100,7 +100,12 @@ export async function loadVolunteers(
       department: profile.department ?? null,
       semester: profile.semester ?? null,
       skills: profile.skills,
-      skillKeys: new Set(profile.skillKeys),
+      // Derived from the skill *names*, which are the source of truth, and
+      // unioned with the denormalised `skillKeys`. A profile written before
+      // `skillKeys` existed (or imported/seeded without it) would otherwise
+      // match nothing and the student would be told they lack skills they
+      // have listed. `skillKey` is idempotent, so re-keying stored keys is safe.
+      skillKeys: new Set([...profile.skills, ...profile.skillKeys].map(skillKey)),
       preferences: profile.preferences,
       availability: profile.availability.map((s) => ({ date: s.date!, startTime: s.startTime!, endTime: s.endTime! })),
       maxHoursPerDay: profile.maxHoursPerDay ?? null,
@@ -134,6 +139,28 @@ export async function loadVolunteers(
 
 const overlaps = (aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) => aStart < bEnd && bStart < aEnd;
 
+/**
+ * The volunteer's availability on one date as maximal `[fromMinute, toMinute]`
+ * intervals, with touching and overlapping slots merged. Students commonly
+ * enter their free time in several consecutive blocks; without merging, an
+ * activity spanning two of them would wrongly count as unavailable.
+ */
+export function availableIntervalsOn(volunteer: Volunteer, date: string): [number, number][] {
+  const ranges = volunteer.availability
+    .filter((s) => s.date === date)
+    .map((s) => [toMinutes(s.startTime), toMinutes(s.endTime)] as [number, number])
+    .sort((a, b) => a[0] - b[0]);
+
+  const merged: [number, number][] = [];
+  for (const [from, to] of ranges) {
+    const last = merged[merged.length - 1];
+    // `from <= last[1]` merges touching blocks (11:00 start after a 11:00 end) too.
+    if (last && from <= last[1]) last[1] = Math.max(last[1], to);
+    else merged.push([from, to]);
+  }
+  return merged;
+}
+
 /** Hours the volunteer is already committed to on a given date. */
 export function hoursOn(volunteer: Volunteer, date: string, ignoreAssignmentId?: string): number {
   return volunteer.seats
@@ -148,9 +175,16 @@ export function hoursOn(volunteer: Volunteer, date: string, ignoreAssignmentId?:
  * never consulted here.
  *
  * `ignoreAssignmentId` excludes the assignment being re-checked from the
- * volunteer's own seats.
+ * volunteer's own seats. `excludeCodes` drops specific violation codes from
+ * the result afterwards — used to ask "is everything but the mock test in
+ * order?" when deciding whether to unlock that test in the first place.
  */
-export function checkVolunteer(volunteer: Volunteer, activity: ActivityLike, ignoreAssignmentId?: string): Violation[] {
+export function checkVolunteer(volunteer: Volunteer, activity: ActivityLike, ignoreAssignmentId?: string, excludeCodes?: Violation['code'][]): Violation[] {
+  const violations = checkVolunteerAll(volunteer, activity, ignoreAssignmentId);
+  return excludeCodes?.length ? violations.filter((v) => !excludeCodes.includes(v.code)) : violations;
+}
+
+function checkVolunteerAll(volunteer: Volunteer, activity: ActivityLike, ignoreAssignmentId?: string): Violation[] {
   const violations: Violation[] = [];
   const add = (code: Violation['code'], message: string) => violations.push({ code, message });
 
@@ -163,7 +197,12 @@ export function checkVolunteer(volunteer: Volunteer, activity: ActivityLike, ign
     return violations;
   }
 
-  const missing = activity.requiredSkills.filter((_, i) => !volunteer.skillKeys.has(activity.requiredSkillKeys[i]));
+  // Keyed from each required skill's own name rather than by index into the
+  // denormalised `requiredSkillKeys`. That array can be shorter, stale or
+  // absent on activities written outside `parseActivity` (seeds, imports,
+  // older records); indexing into it then yields `undefined`, which matches
+  // nothing and reports *every* required skill as missing.
+  const missing = activity.requiredSkills.filter((name) => !volunteer.skillKeys.has(skillKey(name)));
   if (missing.length) add('MISSING_SKILL', `Missing required skill${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}`);
 
   const needed = activity.minPriorEvents ?? 0;
@@ -181,9 +220,10 @@ export function checkVolunteer(volunteer: Volunteer, activity: ActivityLike, ign
 
   const start = toMinutes(activity.startTime);
   const end = toMinutes(activity.endTime);
-  const covered = volunteer.availability.some(
-    (s) => s.date === activity.date && toMinutes(s.startTime) <= start && toMinutes(s.endTime) >= end,
-  );
+  // Contiguous slots are merged first: a student who entered 09:00–11:00 and
+  // 11:00–13:00 is genuinely free 09:00–13:00, and must not be refused a
+  // 09:00–13:00 activity just because no single stored slot spans it.
+  const covered = availableIntervalsOn(volunteer, activity.date).some(([from, to]) => from <= start && to >= end);
   if (!covered) add('UNAVAILABLE', `Not available on ${activity.date} from ${activity.startTime} to ${activity.endTime}`);
 
   const activityId = String(activity._id);

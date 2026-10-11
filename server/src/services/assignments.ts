@@ -149,6 +149,22 @@ export async function assignManually(manager: UserDoc, activityId: string, stude
 }
 
 /**
+ * A student volunteering for an activity themselves. The student id is taken
+ * from the session and never from the request, and `placeVolunteer` re-checks
+ * the activity's state, every mandatory rule, schedule conflicts and capacity
+ * inside the transaction — so a stale page, a direct API call or a double
+ * submission cannot bypass eligibility or overfill the activity (the unique
+ * live-assignment index rejects the duplicate). The result is `pending`, like
+ * any other proposal, until an organizer confirms it.
+ */
+export async function applyForActivity(student: UserDoc, activityId: string) {
+  const assignment = await mongoose.connection.transaction((session) =>
+    placeVolunteer({ activityId, studentId: student.id as string, source: 'manual', actor: student, explanation: ['Volunteered by the student'] }, session),
+  );
+  return { id: assignment.id as string, status: assignment.status };
+}
+
+/**
  * Confirms a pending assignment. All constraints are checked again at this
  * moment, on the server, because availability, other assignments or the
  * activity itself may have changed since the proposal was made.
