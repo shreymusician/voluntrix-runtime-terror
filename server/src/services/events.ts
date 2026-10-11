@@ -140,7 +140,59 @@ export function serializeEvent(event: EventDoc) {
     status: event.status,
     isSampleData: event.isSampleData,
     createdBy: String(event.createdBy),
+    ...eventMapSummary(event),
   };
+}
+
+/**
+ * The venue map data shared with anyone who can already see this event — a
+ * confirmed public venue location is not sensitive the way a person's live
+ * position is, so this is embedded wherever an event is summarised for a
+ * student (dashboard, activities, assignments), not just for managers.
+ */
+export function eventMapSummary(event: Pick<EventDoc, 'id' | 'name' | 'venue' | 'venueAddress' | 'venueLocation' | 'locationUpdatedAt'>) {
+  return {
+    venueAddress: event.venueAddress || null,
+    venueLocation: event.venueLocation ? { latitude: event.venueLocation.coordinates[1], longitude: event.venueLocation.coordinates[0] } : null,
+    locationUpdatedAt: event.locationUpdatedAt ?? null,
+  };
+}
+
+const locationSchema = z
+  .object({
+    venueAddress: z.string().trim().max(300).default(''),
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+  })
+  .strict();
+
+/**
+ * Sets or corrects the event's venue point on the map. Separate from
+ * `updateEvent` so picking a location on the map is its own small, focused
+ * action rather than requiring the whole event form to be resubmitted.
+ */
+export async function updateEventLocation(user: UserDoc, eventId: string, body: unknown) {
+  const event = await loadManagedEvent(user, eventId);
+  const parsed = locationSchema.safeParse(body ?? {});
+  if (!parsed.success) throw badRequest('Some fields are invalid', fieldErrors(parsed.error));
+  const { venueAddress, latitude, longitude } = parsed.data;
+
+  event.set({
+    venueAddress,
+    venueLocation: { type: 'Point', coordinates: [longitude, latitude] },
+    locationUpdatedAt: new Date(),
+    locationUpdatedBy: user._id,
+  });
+  await event.save();
+  return serializeEvent(event);
+}
+
+/** Clears a previously set venue point, e.g. if it was set in error. */
+export async function clearEventLocation(user: UserDoc, eventId: string) {
+  const event = await loadManagedEvent(user, eventId);
+  event.set({ venueAddress: '', venueLocation: null, locationUpdatedAt: new Date(), locationUpdatedBy: user._id });
+  await event.save();
+  return serializeEvent(event);
 }
 
 export function serializeActivity(activity: ActivityDoc) {

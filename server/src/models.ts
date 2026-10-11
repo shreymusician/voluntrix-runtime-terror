@@ -51,6 +51,7 @@ const studentProfileSchema = new Schema(
     // Lower-cased skills, the form used for all matching.
     skillKeys: { type: [String], default: [], index: true },
     preferences: { type: [String], default: [] },
+    emergencyDiscoveryEnabled: { type: Boolean, default: false },
     availability: {
       type: [new Schema({ date: String, startTime: String, endTime: String }, { _id: false })],
       default: [],
@@ -142,6 +143,7 @@ const notificationSchema = new Schema(
     title: { type: String, required: true },
     message: { type: String, required: true },
     relatedPromotionRequestId: ref('PromotionRequest', false),
+    relatedEmergencyInvitationId: ref('EmergencyInvitation', false),
     readAt: { type: Date, default: null },
   },
   { timestamps: { createdAt: true, updatedAt: false } },
@@ -172,6 +174,102 @@ const chatMessageSchema = new Schema(
 chatMessageSchema.index({ threadId: 1, createdAt: -1 });
 chatMessageSchema.index({ senderId: 1, createdAt: -1 });
 export const ChatMessage = mongoose.model('ChatMessage', chatMessageSchema);
+
+// ---------------------------------------------- temporary volunteer location
+const volunteerLocationSchema = new Schema(
+  {
+    volunteerId: ref('User'),
+    eventId: { ...ref('Event', false), default: null },
+    sessionId: { type: String, required: true, unique: true },
+    scope: { type: String, enum: ['event', 'emergency'], required: true },
+    location: {
+      type: new Schema(
+        {
+          type: { type: String, enum: ['Point'], required: true },
+          coordinates: { type: [Number], required: true },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
+    accuracyMeters: { type: Number, default: null, min: 0 },
+    locationCapturedAt: { type: Date, default: null },
+    sharingEnabled: { type: Boolean, required: true, default: true },
+    updatedAt: { type: Date, required: true, default: Date.now },
+    expiresAt: { type: Date, required: true },
+    stoppedAt: { type: Date, default: null },
+  },
+  { timestamps: true },
+);
+volunteerLocationSchema.index({ location: '2dsphere' });
+volunteerLocationSchema.index({ eventId: 1, sharingEnabled: 1, updatedAt: -1 });
+volunteerLocationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+volunteerLocationSchema.index(
+  { volunteerId: 1 },
+  { unique: true, partialFilterExpression: { sharingEnabled: true }, name: 'one_active_location_session_per_volunteer' },
+);
+export const VolunteerLocation = mongoose.model('VolunteerLocation', volunteerLocationSchema);
+
+// ------------------------------------------------------- emergency discovery
+const emergencyRequestSchema = new Schema(
+  {
+    eventId: ref('Event'),
+    activityId: ref('Activity'),
+    sourceActivityId: ref('Activity'),
+    createdBy: ref('User'),
+    title: { type: String, required: true, trim: true, maxlength: 120 },
+    description: { type: String, required: true, trim: true, maxlength: 2000 },
+    locationLabel: { type: String, required: true, trim: true, maxlength: 300 },
+    location: {
+      type: new Schema({ type: { type: String, enum: ['Point'], required: true }, coordinates: { type: [Number], required: true } }, { _id: false }),
+      required: true,
+    },
+    startAt: { type: Date, required: true },
+    endAt: { type: Date, required: true },
+    requiredCount: { type: Number, required: true, min: 1, max: 500 },
+    radiusMeters: { type: Number, required: true, min: 250, max: 50_000 },
+    urgency: { type: String, enum: ['normal', 'high', 'critical'], required: true },
+    instructions: { type: String, default: '', trim: true, maxlength: 1000 },
+    specialistSkills: { type: [String], default: [] },
+    status: { type: String, enum: ['open', 'filled', 'cancelled', 'expired'], default: 'open', required: true },
+  },
+  { timestamps: true },
+);
+emergencyRequestSchema.index({ location: '2dsphere' });
+emergencyRequestSchema.index({ eventId: 1, status: 1, startAt: 1 });
+emergencyRequestSchema.index({ createdBy: 1, createdAt: -1 });
+export type EmergencyRequestDoc = HydratedDocument<InferSchemaType<typeof emergencyRequestSchema>>;
+export const EmergencyRequest = mongoose.model('EmergencyRequest', emergencyRequestSchema);
+
+const emergencyInvitationSchema = new Schema(
+  {
+    requestId: ref('EmergencyRequest'),
+    studentId: ref('User'),
+    status: { type: String, enum: ['pending', 'accepted', 'declined', 'expired', 'cancelled'], required: true, default: 'pending' },
+    distanceMeters: { type: Number, required: true, min: 0 },
+    notifiedAt: { type: Date, required: true, default: Date.now },
+    respondedAt: { type: Date, default: null },
+    assignmentId: ref('Assignment', false),
+  },
+  { timestamps: true },
+);
+emergencyInvitationSchema.index({ requestId: 1, studentId: 1 }, { unique: true, name: 'one_emergency_invite_per_student' });
+emergencyInvitationSchema.index({ studentId: 1, status: 1, createdAt: -1 });
+emergencyInvitationSchema.index({ requestId: 1, status: 1 });
+export const EmergencyInvitation = mongoose.model('EmergencyInvitation', emergencyInvitationSchema);
+
+const emergencyAuditSchema = new Schema(
+  {
+    requestId: ref('EmergencyRequest'),
+    invitationId: ref('EmergencyInvitation', false),
+    actorId: ref('User'),
+    action: { type: String, enum: ['created', 'invited', 'accepted', 'declined', 'filled', 'cancelled', 'expired', 'opted_out', 'radius_expanded'], required: true },
+    details: { type: Schema.Types.Mixed, default: null },
+  },
+  { timestamps: { createdAt: true, updatedAt: false } },
+);
+emergencyAuditSchema.index({ requestId: 1, createdAt: -1 });
+export const EmergencyAudit = mongoose.model('EmergencyAudit', emergencyAuditSchema);
 
 // -------------------------------------------------------------- sessions
 const sessionSchema = new Schema(
@@ -204,6 +302,15 @@ const eventSchema = new Schema(
     startDate: { type: String, required: true }, // YYYY-MM-DD, institution local
     endDate: { type: String, required: true },
     venue: { type: String, required: true, trim: true },
+    // Optional detail beyond the venue name (building, room, street address).
+    venueAddress: { type: String, default: '' },
+    // GeoJSON Point: coordinates are [longitude, latitude], per the GeoJSON spec.
+    venueLocation: {
+      type: new Schema({ type: { type: String, enum: ['Point'], required: true }, coordinates: { type: [Number], required: true } }, { _id: false }),
+      default: null,
+    },
+    locationUpdatedAt: { type: Date, default: null },
+    locationUpdatedBy: ref('User', false),
     status: { type: String, enum: EVENT_STATUSES, required: true, default: 'draft' },
     createdBy: ref('User'),
     // Result of the most recent allocation run, kept so it can be re-read.
@@ -215,6 +322,7 @@ const eventSchema = new Schema(
 );
 eventSchema.index({ status: 1, startDate: 1 });
 eventSchema.index({ createdBy: 1 });
+eventSchema.index({ venueLocation: '2dsphere' });
 export type EventDoc = HydratedDocument<InferSchemaType<typeof eventSchema>>;
 export const Event = mongoose.model('Event', eventSchema);
 
@@ -265,6 +373,7 @@ const assignmentSchema = new Schema(
     decidedBy: ref('User', false),
     decidedAt: { type: Date, default: null },
     statusReason: { type: String, default: null },
+    emergencyRequestId: ref('EmergencyRequest', false),
     // Recorded by the organizer after the activity; null = not recorded.
     attendance: { type: String, enum: ['attended', 'absent', null], default: null },
   },

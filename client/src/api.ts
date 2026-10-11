@@ -164,6 +164,22 @@ export type EventStatus = 'draft' | 'published' | 'completed' | 'cancelled';
 export type ActivityStatus = 'open' | 'closed' | 'cancelled';
 export type AssignmentStatus = 'pending' | 'confirmed' | 'rejected' | 'cancelled';
 
+/** The minimal event identity + map data embedded wherever an event is summarised. */
+export interface EventMapInfo {
+  id: string;
+  name: string;
+  venue: string;
+  venueAddress: string | null;
+  venueLocation: { latitude: number; longitude: number } | null;
+  locationUpdatedAt: string | null;
+}
+
+export interface StudentEventMap extends EventMapInfo {
+  description: string;
+  startDate: string;
+  endDate: string;
+}
+
 export interface EventSummary {
   id: string;
   name: string;
@@ -176,6 +192,9 @@ export interface EventSummary {
   activityCount?: number;
   positionsRequired?: number;
   positionsFilled?: number;
+  venueAddress: string | null;
+  venueLocation: { latitude: number; longitude: number } | null;
+  locationUpdatedAt: string | null;
 }
 
 export interface Activity {
@@ -242,7 +261,7 @@ export interface AssignmentBase {
   ended: boolean;
   started: boolean;
   activity: { id: string; name: string; date: string; startTime: string; endTime: string; location: string; instructions: string; requiredCount: number };
-  event: { id: string; name: string; venue: string };
+  event: EventMapInfo;
 }
 
 export interface ManagedAssignment extends AssignmentBase {
@@ -253,7 +272,7 @@ export interface ManagedAssignment extends AssignmentBase {
 }
 
 export interface AvailableActivity extends Activity {
-  event: { id: string; name: string; venue: string };
+  event: EventMapInfo;
   vacancies: number;
   myStatus: 'pending' | 'confirmed' | null;
   eligible: boolean;
@@ -269,7 +288,7 @@ export interface AvailableActivity extends Activity {
 
 /** A vacant position offered by the discovery popup. A vacancy is never eligibility. */
 export interface VacantOpportunity extends Activity {
-  event: { id: string; name: string; venue: string };
+  event: EventMapInfo;
   confirmedCount: number;
   pendingCount: number;
   vacancies: number;

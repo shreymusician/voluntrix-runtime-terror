@@ -9,6 +9,7 @@ import { RegisterPage } from './pages/Register';
 import { EventDetailPage, EventsPage } from './pages/manage/Events';
 import { ManageAssignmentsPage, ManagerDashboard, VolunteersPage } from './pages/manage/ManagePages';
 import { ProfilePage } from './pages/student/Profile';
+import { EventMapPage } from './pages/student/EventMap';
 import { PerformancePage, QuestionsPage } from './pages/manage/Performance';
 import { ChatPage } from './pages/Chat';
 import { ActivitiesPage, AssignmentsPage, NotificationsPage, StudentDashboard } from './pages/student/StudentPages';
@@ -134,6 +135,7 @@ export function App() {
       <Route path="/student/profile" element={student(<ProfilePage />)} />
       <Route path="/student/availability" element={student(<ProfilePage focus="availability" />)} />
       <Route path="/student/activities" element={student(<ActivitiesPage />)} />
+      <Route path="/student/map/:id" element={student(<EventMapPage />)} />
       <Route path="/student/assignments" element={student(<AssignmentsPage />)} />
       <Route path="/student/tests" element={student(<TestsPage />)} />
       <Route path="/student/tests/:id" element={student(<AttemptPage />)} />

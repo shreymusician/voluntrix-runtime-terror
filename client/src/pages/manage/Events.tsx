@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ApiError,
@@ -13,8 +13,12 @@ import {
   type ManagedAssignment,
 } from '../../api';
 import { Alert, Empty, Spinner, StatusBadge, useLoad } from '../../components';
+import { LocationMap } from '../../MapCanvas';
+import { useCurrentPosition, type LatLng } from '../../mapUtils';
 import { Chips, Modal, PageHeader, SkillPicker, StatTile, formatDay, todayLocal, useFeedback, useMeta } from '../../ui';
 import { AssignmentTable, CandidatePicker } from './shared';
+import { LiveVolunteerMap } from './LiveVolunteerMap';
+import { EmergencyFinder } from './EmergencyFinder';
 
 type Errors = Record<string, string | undefined>;
 
@@ -108,6 +112,131 @@ function EventForm({ event, onSaved, onClose }: { event?: EventSummary; onSaved:
           <button className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : event ? 'Save changes' : 'Create event'}</button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+// ----------------------------------------------------------- event location
+
+function EventLocationModal({ event, onClose, onSaved }: { event: EventSummary; onClose: () => void; onSaved: (e: EventSummary) => void }) {
+  const { notify, confirm } = useFeedback();
+  const [selectedPoint, setSelectedPoint] = useState<LatLng | null>(event.venueLocation);
+  const [latitude, setLatitude] = useState(event.venueLocation?.latitude.toString() ?? '');
+  const [longitude, setLongitude] = useState(event.venueLocation?.longitude.toString() ?? '');
+  const [venueAddress, setVenueAddress] = useState(event.venueAddress ?? '');
+  const [usingGps, setUsingGps] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const gps = useCurrentPosition(usingGps);
+  const manualLatitude = latitude.trim() ? Number(latitude) : NaN;
+  const manualLongitude = longitude.trim() ? Number(longitude) : NaN;
+  const point = selectedPoint ?? (Number.isFinite(manualLatitude) && Math.abs(manualLatitude) <= 90 && Number.isFinite(manualLongitude) && Math.abs(manualLongitude) <= 180
+    ? { latitude: manualLatitude, longitude: manualLongitude }
+    : null);
+  const setPoint = (next: LatLng | null) => {
+    setSelectedPoint(next);
+    if (next) {
+      setLatitude(next.latitude.toString());
+      setLongitude(next.longitude.toString());
+    } else {
+      setLatitude('');
+      setLongitude('');
+    }
+  };
+
+  const useMyLocation = () => setUsingGps(true);
+  useEffect(() => {
+    // One-shot suggestion: take the first fix, then let the organizer fine-tune by clicking the map.
+    if (usingGps && gps.status === 'granted' && gps.position) {
+      setUsingGps(false);
+      setPoint({ latitude: gps.position.latitude, longitude: gps.position.longitude });
+    }
+  }, [usingGps, gps.status, gps.position]);
+
+  const save = async () => {
+    if (!point) return;
+    setBusy(true);
+    try {
+      const res = await api<{ event: EventSummary }>(`/manage/events/${event.id}/location`, { method: 'PUT', body: { venueAddress, latitude: point.latitude, longitude: point.longitude } });
+      notify('success', 'Venue location saved.');
+      onSaved(res.event);
+      onClose();
+    } catch (err) {
+      notify('error', errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clear = async () => {
+    const answer = await confirm({ title: 'Remove the venue location?', message: 'Volunteers will no longer be able to find this event on the map until a new location is set.', confirmLabel: 'Remove' });
+    if (!answer.ok) return;
+    setBusy(true);
+    try {
+      const res = await api<{ event: EventSummary }>(`/manage/events/${event.id}/location`, { method: 'DELETE' });
+      notify('success', 'Venue location removed.');
+      onSaved(res.event);
+      setPoint(null);
+    } catch (err) {
+      notify('error', errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={`Set location — ${event.name}`} onClose={onClose} wide>
+      <div className="stack-form">
+        <p className="muted">Use your current location or enter known coordinates to open the map, then click to fine-tune the venue marker.</p>
+        <div className="field">
+          <label htmlFor="ev-venue-address">Address or building detail (optional)</label>
+          <input id="ev-venue-address" value={venueAddress} maxLength={300} onChange={(e) => setVenueAddress(e.target.value)} placeholder="e.g. Block C, 2nd floor" />
+        </div>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="ev-latitude">Latitude</label>
+            <input id="ev-latitude" type="number" min={-90} max={90} step="any" value={latitude} onChange={(e) => { setLatitude(e.target.value); setSelectedPoint(null); }} placeholder="Use GPS or enter coordinates" />
+          </div>
+          <div className="field">
+            <label htmlFor="ev-longitude">Longitude</label>
+            <input id="ev-longitude" type="number" min={-180} max={180} step="any" value={longitude} onChange={(e) => { setLongitude(e.target.value); setSelectedPoint(null); }} placeholder="Longitude" />
+          </div>
+        </div>
+        <div className="row-actions">
+          <button type="button" className="btn btn-secondary btn-sm" onClick={useMyLocation} disabled={usingGps}>
+            {usingGps && gps.status === 'locating' ? 'Finding you…' : 'Use my current location'}
+          </button>
+          {usingGps && (gps.status === 'denied' || gps.status === 'unavailable') && <span className="muted">{gps.error ?? 'Could not get your location.'}</span>}
+          {point && (
+            <span className="muted">
+              Marker at {point.latitude.toFixed(5)}, {point.longitude.toFixed(5)}
+            </span>
+          )}
+        </div>
+        {point ? (
+          <LocationMap
+            center={point}
+            zoom={17}
+            markers={[{ id: 'venue', ...point, label: event.name, color: '#2563eb' }]}
+            onPick={setPoint}
+            height={360}
+          />
+        ) : (
+          <Empty title="Choose a starting point">Use your current position or enter valid coordinates to place the venue marker on the map.</Empty>
+        )}
+        <div className="dialog-actions">
+          {event.venueLocation && (
+            <button type="button" className="btn btn-ghost" onClick={clear} disabled={busy}>
+              Remove location
+            </button>
+          )}
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn-primary" onClick={save} disabled={busy || !point}>
+            {busy ? 'Saving…' : 'Save location'}
+          </button>
+        </div>
+      </div>
     </Modal>
   );
 }
@@ -389,6 +518,7 @@ export function EventDetailPage() {
   const detail = useLoad(() => api<{ event: EventDetail }>(`/manage/events/${id}`), [id]);
   const assignments = useLoad(() => api<{ assignments: ManagedAssignment[] }>(`/manage/assignments?eventId=${id}`), [id]);
   const [editingEvent, setEditingEvent] = useState(false);
+  const [editingLocation, setEditingLocation] = useState(false);
   const [activityForm, setActivityForm] = useState<{ activity?: ManagedActivity } | null>(null);
   const [assigning, setAssigning] = useState<ManagedActivity | null>(null);
   const [busy, setBusy] = useState<'allocate' | 'confirm' | null>(null);
@@ -478,10 +608,17 @@ export function EventDetailPage() {
       <PageHeader title={event.name} subtitle={`${formatDay(event.startDate)}${event.endDate !== event.startDate ? ` – ${formatDay(event.endDate)}` : ''} · ${event.venue}`} eyebrow="Event detail">
         <StatusBadge status={event.status} />
         <button className="btn btn-secondary" onClick={() => setEditingEvent(true)}>Edit event</button>
+        <button className="btn btn-secondary" onClick={() => setEditingLocation(true)}>{event.venueLocation ? 'Edit location' : 'Set location on map'}</button>
         <button className="btn btn-ghost" onClick={removeEvent}>Delete</button>
       </PageHeader>
       {event.description && <p>{event.description}</p>}
       {event.status === 'draft' && <Alert kind="info">This event is a draft. Students cannot see it or its activities until you publish it (Edit event → Status).</Alert>}
+      {!event.venueLocation && (
+        <Alert kind="info">
+          No map location is set for this venue yet. Volunteers can still see the venue name and address, but cannot navigate to it.{' '}
+          <button className="btn btn-ghost btn-sm" onClick={() => setEditingLocation(true)}>Set it now</button>
+        </Alert>
+      )}
 
       <dl className="stat-grid">
         <StatTile label="Positions required" value={required} />
@@ -539,6 +676,9 @@ export function EventDetailPage() {
         )}
       </section>
 
+      <LiveVolunteerMap event={event} />
+      <EmergencyFinder event={event} />
+
       {event.lastAllocation && <AllocationResult report={event.lastAllocation} />}
 
       <section className="card">
@@ -554,6 +694,7 @@ export function EventDetailPage() {
       </section>
 
       {editingEvent && <EventForm event={event} onClose={() => setEditingEvent(false)} onSaved={reload} />}
+      {editingLocation && <EventLocationModal event={event} onClose={() => setEditingLocation(false)} onSaved={reload} />}
       {activityForm && <ActivityForm event={event} activity={activityForm.activity} onClose={() => setActivityForm(null)} onSaved={reload} />}
       {assigning && (
         <CandidatePicker

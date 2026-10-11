@@ -3,12 +3,15 @@ import { z } from 'zod';
 import { ACTIVITY_TYPES, DEPARTMENTS, MAX_AVAILABILITY_SLOTS, MAX_SKILL_LENGTH, SEMESTERS, SUGGESTED_SKILLS, isValidDate } from './catalog.js';
 import type { AppContext } from './context.js';
 import { ASSIGNMENT_STATUSES } from './domain.js';
-import { forbidden } from './errors.js';
+import { forbidden, notFound } from './errors.js';
 import { currentUser, type createMiddleware } from './middleware.js';
+import { Event, StudentProfile } from './models.js';
 import { generateAllocation } from './services/allocation.js';
 import * as assignments from './services/assignments.js';
+import * as emergency from './services/emergency.js';
 import * as events from './services/events.js';
 import * as insights from './services/insights.js';
+import * as locations from './services/locations.js';
 import { getOwnProfile, saveOwnProfile } from './services/volunteerProfile.js';
 import { objectId, parse } from './validation.js';
 
@@ -57,6 +60,49 @@ export function createVolunteerRoutes(ctx: AppContext, mw: ReturnType<typeof cre
   student.use(requireAuth, requireRole('student'));
   student.get('/dashboard', async (req, res) => res.json(await insights.studentDashboard(ctx, currentUser(req))));
   student.get('/activities', async (req, res) => res.json({ activities: await insights.listAvailableActivities(currentUser(req)) }));
+  student.get('/location-sharing', async (req, res) => res.json({ session: await locations.activeLocationSession(currentUser(req)) }));
+  student.get('/location-preferences', async (req, res) => res.json(await locations.getLocationPreferences(currentUser(req))));
+  student.put('/location-preferences', async (req, res) => {
+    const input = parse(z.object({ emergencyDiscoveryEnabled: z.boolean() }).strict(), req.body);
+    res.json(await locations.updateLocationPreferences(currentUser(req), input.emergencyDiscoveryEnabled));
+  });
+  student.post('/location-sharing/start', mw.sensitiveLimiter, async (req, res) => {
+    const input = parse(z.object({ eventId: objectId.optional() }).strict(), req.body);
+    res.status(201).json({ session: await locations.startLocationSharing(currentUser(req), input.eventId) });
+  });
+  student.patch('/location-sharing/:sessionId', mw.sensitiveLimiter, async (req, res) => {
+    const sessionId = parse(z.string().uuid(), req.params.sessionId);
+    res.json({ session: await locations.updateLocation(currentUser(req), sessionId, req.body) });
+  });
+  student.delete('/location-sharing/:sessionId', async (req, res) => {
+    const sessionId = parse(z.string().uuid(), req.params.sessionId);
+    res.json(await locations.stopLocationSharing(currentUser(req), sessionId));
+  });
+  student.get('/emergency-invitations', async (req, res) => res.json({ invitations: await emergency.listOwnEmergencyInvitations(currentUser(req)) }));
+  student.post('/emergency-invitations/:id/respond', mw.sensitiveLimiter, async (req, res) => {
+    const input = parse(z.object({ response: z.enum(['accept', 'decline']) }).strict(), req.body);
+    res.json(await emergency.respondToEmergencyInvitation(currentUser(req), id(req), input.response));
+  });
+  student.get('/events/:id/map', async (req, res) => {
+    const student = currentUser(req);
+    const [event, profile] = await Promise.all([
+      Event.findOne({ _id: id(req), status: 'published' }),
+      StudentProfile.findOne({ userId: student._id }).select('profileCompletedAt'),
+    ]);
+    if (!event) throw notFound('Event not found');
+    if (!profile?.profileCompletedAt) throw forbidden('Complete your volunteer profile to view event details');
+    res.json({
+      event: {
+        id: event.id as string,
+        name: event.name,
+        description: event.description,
+        startDate: event.startDate,
+        endDate: event.endDate,
+        venue: event.venue,
+        ...events.eventMapSummary(event),
+      },
+    });
+  });
   // Vacant positions to explore when nothing currently suits the student.
   // Eligibility is evaluated per activity here too; a vacancy never implies one.
   student.get('/vacancies', async (req, res) => res.json(await insights.listVacantOpportunities(currentUser(req))));
@@ -79,7 +125,22 @@ export function createVolunteerRoutes(ctx: AppContext, mw: ReturnType<typeof cre
   manage.get('/events', async (req, res) => res.json({ events: await events.listEvents(currentUser(req)) }));
   manage.post('/events', async (req, res) => res.status(201).json({ event: await events.createEvent(currentUser(req), req.body) }));
   manage.get('/events/:id', async (req, res) => res.json({ event: await events.getEventDetail(currentUser(req), id(req)) }));
+  manage.get('/events/:id/live-locations', async (req, res) => res.json(await locations.listLiveEventLocations(currentUser(req), id(req))));
+  manage.get('/events/:id/emergency-requests', async (req, res) => res.json({ requests: await emergency.listEmergencyRequests(currentUser(req), id(req)) }));
+  manage.post('/events/:id/emergency-requests', mw.sensitiveLimiter, async (req, res) => {
+    res.status(201).json({ request: await emergency.createEmergencyRequest(currentUser(req), id(req), req.body) });
+  });
+  manage.get('/emergency-requests/:id/candidates', async (req, res) => res.json(await emergency.discoverEmergencyCandidates(currentUser(req), id(req))));
+  manage.get('/emergency-requests/:id/invitations', async (req, res) => res.json(await emergency.listEmergencyInvitations(currentUser(req), id(req))));
+  manage.patch('/emergency-requests/:id/radius', async (req, res) => res.json(await emergency.expandEmergencyRadius(currentUser(req), id(req), req.body)));
+  manage.post('/emergency-requests/:id/invitations', mw.sensitiveLimiter, async (req, res) => {
+    res.status(201).json(await emergency.sendEmergencyInvitations(currentUser(req), id(req), req.body));
+  });
+  manage.delete('/emergency-requests/:id', mw.sensitiveLimiter, async (req, res) => res.json(await emergency.cancelEmergencyRequest(currentUser(req), id(req))));
   manage.put('/events/:id', async (req, res) => res.json({ event: await events.updateEvent(currentUser(req), id(req), req.body) }));
+  // The venue map point, set independently of the rest of the event form.
+  manage.put('/events/:id/location', async (req, res) => res.json({ event: await events.updateEventLocation(currentUser(req), id(req), req.body) }));
+  manage.delete('/events/:id/location', async (req, res) => res.json({ event: await events.clearEventLocation(currentUser(req), id(req)) }));
   manage.delete('/events/:id', async (req, res) => {
     await events.deleteEvent(currentUser(req), id(req));
     res.json({ ok: true });

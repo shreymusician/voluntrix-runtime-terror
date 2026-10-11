@@ -17,7 +17,7 @@ import {
   type UserDoc,
 } from '../models.js';
 import { activityBlocker, checkVolunteer, loadVolunteers, type Violation, type Volunteer } from './eligibility.js';
-import { loadManagedActivity, loadManagedEvent, managedEventFilter } from './events.js';
+import { eventMapSummary, loadManagedActivity, loadManagedEvent, managedEventFilter } from './events.js';
 import { defaultScoring, scoreVolunteer, totalLoad } from './scoring.js';
 
 const notEligible = (name: string, violations: Violation[]) =>
@@ -386,7 +386,7 @@ function describe(assignment: AssignmentDoc, activity: ActivityDoc, event: Event
       instructions: activity.instructions,
       requiredCount: activity.requiredCount,
     },
-    event: { id: event.id as string, name: event.name, venue: event.venue },
+    event: { id: event.id as string, name: event.name, venue: event.venue, ...eventMapSummary(event) },
   };
 }
 

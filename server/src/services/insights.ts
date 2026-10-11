@@ -5,7 +5,7 @@ import { forbidden } from '../errors.js';
 import { Activity, Assignment, Event, StudentProfile, TestAttempt, User, type UserDoc } from '../models.js';
 import { findIssues, listOwnAssignments } from './assignments.js';
 import { activityBlocker, checkVolunteer, loadVolunteers } from './eligibility.js';
-import { isManager, managedEventFilter, seatCounts, serializeActivity, serializeEvent } from './events.js';
+import { eventMapSummary, isManager, managedEventFilter, seatCounts, serializeActivity, serializeEvent } from './events.js';
 import { totalLoad } from './scoring.js';
 import { loadQualifyingResults, resultKey } from './tests.js';
 import { getOwnProfile } from './volunteerProfile.js';
@@ -71,7 +71,7 @@ export async function listAvailableActivities(student: UserDoc) {
 
     return {
       ...serializeActivity(activity),
-      event: { id: event.id as string, name: event.name, venue: event.venue },
+      event: { id: event.id as string, name: event.name, venue: event.venue, ...eventMapSummary(event) },
       vacancies: Math.max(0, activity.requiredCount - c.pending - c.confirmed),
       myStatus: mine?.status ?? null,
       eligible: reasons.length === 0,
@@ -117,7 +117,7 @@ export async function listVacantOpportunities(student: UserDoc) {
 
       return {
         ...serializeActivity(activity),
-        event: { id: event.id as string, name: event.name, venue: event.venue },
+        event: { id: event.id as string, name: event.name, venue: event.venue, ...eventMapSummary(event) },
         requiredCount: activity.requiredCount,
         confirmedCount: c.confirmed,
         pendingCount: c.pending,

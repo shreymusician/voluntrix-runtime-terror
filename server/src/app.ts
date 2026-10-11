@@ -12,7 +12,7 @@ export function createApp(ctx: AppContext) {
   const app = express();
   app.disable('x-powered-by');
   // Needed for correct client IPs (rate limiting) and secure cookies behind a proxy.
-  if (ctx.config.isProduction) app.set('trust proxy', 1);
+  if (ctx.config.isProduction || process.env.VERCEL === '1') app.set('trust proxy', 1);
 
   app.use(helmet());
   app.use(express.json({ limit: '50kb' }));

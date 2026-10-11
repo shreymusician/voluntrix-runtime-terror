@@ -4,6 +4,8 @@ import { api, errorMessage, type AssignmentBase, type AvailableActivity, type St
 import { useAuth } from '../../auth';
 import { Alert, Empty, Notifications, Spinner, StatusBadge, formatDate, useLoad } from '../../components';
 import { Chips, Modal, PageHeader, StatTile, formatDay, useFeedback } from '../../ui';
+import { LocationSharing } from './LocationSharing';
+import { EmergencyInbox } from './EmergencyInbox';
 
 const PROMOTION_COPY: Record<string, string> = {
   pending: 'Your request is waiting for a faculty reviewer.',
@@ -37,6 +39,9 @@ function AssignmentCard({ a, onCancel }: { a: AssignmentBase; onCancel?: (a: Ass
       </div>
       <div className="duty-side">
         <StatusBadge status={a.status} />
+        <Link className="btn btn-ghost btn-sm" to={`/student/map/${a.event.id}`}>
+          Find on map
+        </Link>
         {onCancel && !a.started && (a.status === 'pending' || a.status === 'confirmed') && (
           <button className="btn btn-ghost btn-sm" onClick={() => onCancel(a)}>
             Cancel
@@ -167,6 +172,7 @@ function ActivityCard({ a, onApplied }: { a: AvailableActivity; onApplied?: () =
         </ul>
       )}
       {!a.myStatus && <ActivityTestAction a={a} />}
+      <Link className="btn btn-ghost btn-sm activity-map-link" to={`/student/map/${a.event.id}`}>Find event on map</Link>
       {canVolunteer && (
         <div className="test-gate">
           <button className="btn btn-primary btn-sm" onClick={apply} disabled={applying}>
@@ -282,6 +288,9 @@ export function StudentDashboard() {
             </div>
           </section>
 
+          <EmergencyInbox />
+          <LocationSharing assignments={data.confirmedAssignments} />
+
           <div className="grid-2">
             <section className="card">
               <div className="card-head">
@@ -317,12 +326,15 @@ export function StudentDashboard() {
               ) : (
                 <ul className="plain-list">
                   {data.upcomingEvents.map((e) => (
-                    <li key={e.id}>
-                      <strong>{e.name}</strong>
+                    <li className="event-list-row" key={e.id}>
+                      <div>
+                        <strong>{e.name}</strong>
                       <span className="muted">
                         {' '}· {formatDay(e.startDate)}
                         {e.endDate !== e.startDate && ` to ${formatDay(e.endDate)}`} · {e.venue}
                       </span>
+                      </div>
+                      <Link className="btn btn-ghost btn-sm" to={`/student/map/${e.id}`}>Find on map</Link>
                     </li>
                   ))}
                 </ul>
