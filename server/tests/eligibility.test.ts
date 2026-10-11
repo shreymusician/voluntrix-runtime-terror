@@ -190,7 +190,7 @@ describe('mock tests follow per-activity eligibility', () => {
 
 describe('vacancy discovery', () => {
   // 6 + 9
-  it('reports no eligible activity and offers vacant ones to explore, with honest reasons', async () => {
+  it('offers schedule-matching vacancies as skill-gap requests and shows why they are not yet eligible', async () => {
     const { addActivity } = await publishedEvent();
     await addActivity({ name: 'Stage', requiredSkills: ['Stage Management'], requiredCount: 3, startTime: '09:00', endTime: '11:00' });
     await addActivity({ name: 'Photo', requiredSkills: ['Photography'], requiredCount: 2, startTime: '12:00', endTime: '14:00' });
@@ -201,13 +201,14 @@ describe('vacancy discovery', () => {
     expect(list.every((a: { eligible: boolean }) => !a.eligible)).toBe(true);
 
     const res = await vacancies(student.agent);
-    expect(res.eligibleForAnyActivity).toBe(false);
+    expect(res.eligibleForAnyActivity).toBe(true);
     expect(res.opportunities).toHaveLength(2);
-    // Nothing is presented as joinable, and each says why not.
+    // The requests are allowed, but neither opportunity is yet eligible for confirmation.
     expect(res.opportunities.every((o: { kind: string }) => o.kind === 'explore')).toBe(true);
     expect(res.opportunities.every((o: { eligible: boolean }) => o.eligible === false)).toBe(true);
+    expect(res.opportunities.every((o: { canRequest: boolean }) => o.canRequest)).toBe(true);
     expect(byName(res.opportunities, 'Stage').reasons.join()).toMatch(/Missing required skill: Stage Management/);
-    expect(byName(res.opportunities, 'Stage').suggestionReason).toMatch(/do not meet all the requirements/);
+    expect(byName(res.opportunities, 'Stage').suggestionReason).toMatch(/schedule and other requirements match/);
     // Every field the popup needs is present.
     expect(byName(res.opportunities, 'Stage')).toMatchObject({
       requiredCount: 3,
@@ -235,14 +236,31 @@ describe('vacancy discovery', () => {
   });
 
   // 8
-  it('refuses the application when a vacant activity\'s requirements are not met', async () => {
+  it('allows a schedule-matching student to request despite a skill gap, but blocks confirmation until the skill is added', async () => {
+    const { faculty, addActivity } = await publishedEvent();
+    const stage = await addActivity({ name: 'Stage', requiredSkills: ['Stage Management'], requiredCount: 2, startTime: '09:00', endTime: '11:00' });
+    const student = await createVolunteer(t.app, { skills: ['Communication'], availability: allDay });
+
+    const listed = byName(await activities(student.agent), 'Stage');
+    expect(listed).toMatchObject({ eligible: false, canRequest: true, reasons: ['Missing required skill: Stage Management'] });
+    const request = await student.agent.post(`/api/student/activities/${stage.id}/apply`).send({}).expect(201);
+    expect(request.body.assignment.status).toBe('pending');
+
+    const blocked = await faculty.agent.post(`/api/manage/assignments/${request.body.assignment.id}/confirm`).send({}).expect(422);
+    expect(blocked.body.details.violations[0].code).toBe('MISSING_SKILL');
+
+    await student.agent.put('/api/volunteer-profile').send({ skills: ['Communication', 'Stage Management'] }).expect(200);
+    await faculty.agent.post(`/api/manage/assignments/${request.body.assignment.id}/confirm`).send({}).expect(200);
+  });
+
+  it('refuses the application when the student is unavailable, even if skills are missing too', async () => {
     const { addActivity } = await publishedEvent();
     const stage = await addActivity({ name: 'Stage', requiredSkills: ['Stage Management'], requiredCount: 2, startTime: '09:00', endTime: '11:00' });
 
-    const student = await createVolunteer(t.app, { skills: ['Communication'], availability: allDay });
+    const student = await createVolunteer(t.app, { skills: ['Communication'], availability: [{ date: DAY(), startTime: '13:00', endTime: '18:00' }] });
     const res = await student.agent.post(`/api/student/activities/${stage.id}/apply`).send({}).expect(422);
     expect(res.body.code).toBe('NOT_ELIGIBLE');
-    expect(res.body.details.violations[0].code).toBe('MISSING_SKILL');
+    expect(res.body.details.violations[0].code).toBe('UNAVAILABLE');
   });
 
   it('does not call a student stranded once they already hold a place', async () => {

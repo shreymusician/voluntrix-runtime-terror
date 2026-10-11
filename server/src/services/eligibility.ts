@@ -169,10 +169,9 @@ export function hoursOn(volunteer: Volunteer, date: string, ignoreAssignmentId?:
 }
 
 /**
- * The mandatory rules for putting one volunteer on one activity. Every path
- * that creates, confirms or re-validates an assignment — automatic or manual
- * — goes through this function, so no route can bypass a rule. Scores are
- * never consulted here.
+ * The mandatory rules for putting one volunteer on one activity. Automatic
+ * allocation and confirmation use every rule; student requests may defer only
+ * missing skills until confirmation. Scores are never consulted here.
  *
  * `ignoreAssignmentId` excludes the assignment being re-checked from the
  * volunteer's own seats. `excludeCodes` drops specific violation codes from
@@ -197,6 +196,13 @@ function checkVolunteerAll(volunteer: Volunteer, activity: ActivityLike, ignoreA
     return violations;
   }
 
+  const start = toMinutes(activity.startTime);
+  const end = toMinutes(activity.endTime);
+  // Availability is the first gate: only after a full time-window match do
+  // skill gaps become relevant to allocation or student requests.
+  const covered = availableIntervalsOn(volunteer, activity.date).some(([from, to]) => from <= start && to >= end);
+  if (!covered) add('UNAVAILABLE', `Not available on ${activity.date} from ${activity.startTime} to ${activity.endTime}`);
+
   // Keyed from each required skill's own name rather than by index into the
   // denormalised `requiredSkillKeys`. That array can be shorter, stale or
   // absent on activities written outside `parseActivity` (seeds, imports,
@@ -218,14 +224,6 @@ function checkVolunteerAll(volunteer: Volunteer, activity: ActivityLike, ignoreA
     else if (!test.passed) add('TEST_REQUIRED', `Did not pass the ${activity.activityType} mock test (${test.percent}%)`);
   }
 
-  const start = toMinutes(activity.startTime);
-  const end = toMinutes(activity.endTime);
-  // Contiguous slots are merged first: a student who entered 09:00–11:00 and
-  // 11:00–13:00 is genuinely free 09:00–13:00, and must not be refused a
-  // 09:00–13:00 activity just because no single stored slot spans it.
-  const covered = availableIntervalsOn(volunteer, activity.date).some(([from, to]) => from <= start && to >= end);
-  if (!covered) add('UNAVAILABLE', `Not available on ${activity.date} from ${activity.startTime} to ${activity.endTime}`);
-
   const activityId = String(activity._id);
   const others = volunteer.seats.filter((s) => s.assignmentId !== ignoreAssignmentId);
   if (others.some((s) => s.activityId === activityId)) add('ALREADY_ASSIGNED', 'Already assigned to this activity');
@@ -239,6 +237,11 @@ function checkVolunteerAll(volunteer: Volunteer, activity: ActivityLike, ignoreA
     }
   }
   return violations;
+}
+
+/** Whether a student may request organizer review despite missing required skills. */
+export function canSubmitSkillGapRequest(violations: Violation[]): boolean {
+  return violations.every((violation) => violation.code === 'MISSING_SKILL');
 }
 
 export const formatHours = (h: number) => `${Math.round(h * 100) / 100} h`;

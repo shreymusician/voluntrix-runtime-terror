@@ -43,6 +43,17 @@ export const RENAMED_ACTIVITY_TYPES: Record<string, ActivityCategory> = {
   Photography: 'Photography and Media',
 };
 
+export function normalizeActivityType(value: unknown): ActivityCategory | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const key = skillKey(trimmed);
+  const direct = ACTIVITY_TYPES.find((category) => skillKey(category) === key);
+  if (direct) return direct;
+  const legacy = Object.entries(RENAMED_ACTIVITY_TYPES).find(([name]) => skillKey(name) === key);
+  return legacy ? legacy[1] : null;
+}
+
 /**
  * Profile skills that count as relevant to each category. Used for the
  * skill-match part of a category ranking when no specific activity (with its

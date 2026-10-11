@@ -49,14 +49,21 @@ created) create events and add activities with a time, location, required
 skills, nice-to-have skills, headcount and optional experience requirement.
 
 **Allocation** — `server/src/services/allocation.ts`. Mandatory rules live in
-one place, `server/src/services/eligibility.ts`, and every path that creates
-or confirms an assignment goes through it:
+one place, `server/src/services/eligibility.ts`. Automatic allocation and
+confirmation require:
 
-- has every required skill, and any required experience
-- an availability slot covers the whole activity
+- a complete volunteer profile
+- availability covering the whole activity (consecutive slots are combined)
+- has every required skill and any required experience
 - no overlap with another pending or confirmed assignment
 - stays within the volunteer's maximum hours for that day
 - the activity still has a free position
+
+Students may also request an open position when their schedule and every
+other requirement match but they lack one or more required skills. The request
+stays pending and cannot be confirmed until they add those skills; the server
+checks again at confirmation. Availability is checked before skill matching
+so an unavailable activity is never offered as requestable.
 
 Volunteers who pass are ranked by a 0–100 score
 (`server/src/services/scoring.ts`: preference match 30, nice-to-have skills
@@ -65,11 +72,11 @@ eligible volunteers; it can never make an ineligible one assignable.
 Activities with the fewest eligible volunteers are filled first. Where there
 are not enough people the position stays vacant and the report says why.
 
-Generated assignments are **pending** until an organizer confirms them.
-Confirming, assigning manually and replacing a volunteer all re-check the
-same rules on the server at that moment. Regenerating never touches confirmed
-assignments. Times are stored as real instants using one institution-wide
-offset (`APP_UTC_OFFSET_MINUTES`, default India +330).
+Generated assignments and student requests are **pending** until an organizer
+confirms them. Confirming, assigning manually and replacing a volunteer all
+re-check the applicable rules on the server at that moment. Regenerating never
+touches confirmed assignments. Times are stored as real instants using one
+institution-wide offset (`APP_UTC_OFFSET_MINUTES`, default India +330).
 
 **After the activity** — the organizer records attendance and optional
 feedback on each confirmed assignment. That record is what faculty see as

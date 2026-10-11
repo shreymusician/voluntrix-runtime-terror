@@ -88,6 +88,18 @@ describe('volunteer profile', () => {
     expect((await agent.get('/api/volunteer-profile')).body.profile.skills).toEqual(['Leadership', 'video editing']);
   });
 
+  it('accepts legacy activity-type aliases and stores their canonical names', async () => {
+    const student = await createStudent(t.app);
+    const agent = await loginAs(t.app, student.username, 'student');
+    const saved = await agent.put('/api/volunteer-profile').send(profilePayload({ preferences: ['registration', 'PHOTOGRAPHY'] })).expect(200);
+    expect(saved.body.profile.preferences).toEqual(['Registration Management', 'Photography and Media']);
+
+    const faculty = await facultyAgent();
+    const event = (await faculty.agent.post('/api/manage/events').send(eventPayload()).expect(201)).body.event;
+    const activity = (await faculty.agent.post(`/api/manage/events/${event.id}/activities`).send(activityPayload({ activityType: 'Photography' })).expect(201)).body.activity;
+    expect(activity.activityType).toBe('Photography and Media');
+  });
+
   it('rejects invalid, overlapping and past availability', async () => {
     const student = await createStudent(t.app);
     const agent = await loginAs(t.app, student.username, 'student');

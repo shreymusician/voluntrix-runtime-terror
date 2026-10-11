@@ -7,6 +7,7 @@ import {
   isValidDate,
   isValidTime,
   localToday,
+  normalizeActivityType,
   normalizeSkills,
   skillKey,
   toMinutes,
@@ -175,10 +176,12 @@ export async function saveOwnProfile(ctx: AppContext, user: UserDoc, body: unkno
   }
 
   if (input.preferences !== undefined) {
-    const chosen = [...new Set(input.preferences)];
-    if (chosen.some((p) => typeof p !== 'string' || !(ACTIVITY_TYPES as readonly string[]).includes(p))) {
+    const normalized = input.preferences.map((p) => (typeof p === 'string' ? normalizeActivityType(p) : null));
+    if (normalized.some((p) => p === null)) {
       errors.preferences = 'Choose preferences from the listed activity types';
-    } else profile.preferences = chosen as string[];
+    } else {
+      profile.preferences = [...new Set(normalized as string[])];
+    }
   }
 
   if (input.availability !== undefined) {

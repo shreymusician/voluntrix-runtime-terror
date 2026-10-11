@@ -4,7 +4,7 @@ import { ACTIVE_ASSIGNMENT_STATUSES } from '../domain.js';
 import { forbidden } from '../errors.js';
 import { Activity, Assignment, Event, StudentProfile, TestAttempt, User, type UserDoc } from '../models.js';
 import { findIssues, listOwnAssignments } from './assignments.js';
-import { activityBlocker, checkVolunteer, loadVolunteers } from './eligibility.js';
+import { activityBlocker, canSubmitSkillGapRequest, checkVolunteer, loadVolunteers } from './eligibility.js';
 import { eventMapSummary, isManager, managedEventFilter, seatCounts, serializeActivity, serializeEvent } from './events.js';
 import { totalLoad } from './scoring.js';
 import { loadQualifyingResults, resultKey } from './tests.js';
@@ -41,6 +41,11 @@ export async function listAvailableActivities(student: UserDoc) {
     const mine = me?.seats.find((s) => s.activityId === activity.id);
     const violations = me ? checkVolunteer(me, activity).filter((v) => v.code !== 'ALREADY_ASSIGNED') : null;
     const reasons = violations ? violations.map((v) => v.message) : ['Not a student account'];
+    const canRequest =
+      Boolean(me) &&
+      canSubmitSkillGapRequest(violations ?? []) &&
+      !mine &&
+      c.pending + c.confirmed < activity.requiredCount;
 
     // Test gating: independent of overall eligibility above, this answers
     // "is the mock test for THIS activity unlocked", i.e. does the student
@@ -75,6 +80,7 @@ export async function listAvailableActivities(student: UserDoc) {
       vacancies: Math.max(0, activity.requiredCount - c.pending - c.confirmed),
       myStatus: mine?.status ?? null,
       eligible: reasons.length === 0,
+      canRequest,
       reasons,
       testRequired,
       testCategory: testRequired ? activity.activityType : null,
@@ -113,6 +119,7 @@ export async function listVacantOpportunities(student: UserDoc) {
       // A seat the student already holds is not an "opportunity" to discover.
       const blocking = (violations ?? []).filter((v) => v.code !== 'ALREADY_ASSIGNED');
       const eligible = Boolean(violations) && blocking.length === 0 && !held;
+      const canRequest = Boolean(violations) && canSubmitSkillGapRequest(blocking) && !held && vacancies > 0;
       const matchesPreference = Boolean(activity.activityType && me?.preferences.includes(activity.activityType));
 
       return {
@@ -124,6 +131,7 @@ export async function listVacantOpportunities(student: UserDoc) {
         vacancies,
         myStatus: held?.status ?? null,
         eligible,
+        canRequest,
         kind: eligible ? ('eligible' as const) : ('explore' as const),
         reasons: blocking.map((v) => v.message),
         matchesPreference,
@@ -131,7 +139,9 @@ export async function listVacantOpportunities(student: UserDoc) {
           ? matchesPreference
             ? `You meet every requirement and this matches your ${activity.activityType} preference. ${vacancies} position${vacancies === 1 ? '' : 's'} still open.`
             : `You meet every requirement for this activity and ${vacancies} position${vacancies === 1 ? '' : 's'} ${vacancies === 1 ? 'is' : 'are'} still open.`
-          : `${vacancies} position${vacancies === 1 ? '' : 's'} still open, but you do not meet all the requirements yet.`,
+          : canRequest
+            ? `Your schedule and other requirements match, but you are missing required skills. You may request this position; the organizer cannot confirm it until you add those skills.`
+            : `${vacancies} position${vacancies === 1 ? '' : 's'} still open, but you do not meet all the requirements yet.`,
         // Everything a student must satisfy to take this on, shown as-is.
         eligibilityRequirements: {
           requiredSkills: activity.requiredSkills,
@@ -145,10 +155,12 @@ export async function listVacantOpportunities(student: UserDoc) {
     })
     .filter((o) => o.vacancies > 0 && !o.myStatus);
 
-  // Eligible first, then preference matches, then soonest.
+  // Fully eligible first, then schedule-matching skill-gap requests, then
+  // preference matches and soonest among opportunities at the same level.
   opportunities.sort(
     (a, b) =>
       Number(b.eligible) - Number(a.eligible) ||
+      Number(b.canRequest) - Number(a.canRequest) ||
       Number(b.matchesPreference) - Number(a.matchesPreference) ||
       a.date.localeCompare(b.date) ||
       a.startTime.localeCompare(b.startTime),
@@ -156,11 +168,10 @@ export async function listVacantOpportunities(student: UserDoc) {
 
   const all = await listAvailableActivities(student);
   return {
-    // Whether ANY open upcoming activity is currently within reach, which is
-    // what decides if the student needs the discovery popup at all. Holding a
-    // place already counts: someone who has just volunteered is not stranded
-    // merely because the remaining activities clash with that duty.
-    eligibleForAnyActivity: all.some((a) => a.eligible || a.myStatus),
+    // Whether any open upcoming activity is eligible or requestable, which
+    // decides whether the student needs the discovery popup. Holding a place
+    // also counts: they are not stranded because remaining activities clash.
+    eligibleForAnyActivity: all.some((a) => a.eligible || a.canRequest || a.myStatus),
     opportunities,
     totalVacancies: opportunities.reduce((sum, o) => sum + o.vacancies, 0),
   };

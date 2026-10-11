@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { z } from 'zod';
-import { ACTIVITY_TYPES, isValidDate, isValidTime, normalizeSkills, skillKey, toInstant, toMinutes } from '../catalog.js';
+import { ACTIVITY_TYPES, isValidDate, isValidTime, normalizeActivityType, normalizeSkills, skillKey, toInstant, toMinutes } from '../catalog.js';
 import type { AppContext } from '../context.js';
 import { ACTIVE_ASSIGNMENT_STATUSES, ACTIVITY_STATUSES, EVENT_STATUSES } from '../domain.js';
 import { badRequest, conflict, forbidden, notFound } from '../errors.js';
@@ -71,7 +71,7 @@ const activitySchema = z
   .object({
     name: text('Activity name', 120),
     description: z.string().trim().max(2000).default(''),
-    activityType: z.enum(ACTIVITY_TYPES).nullable().default(null),
+    activityType: z.union([z.enum(ACTIVITY_TYPES), z.string()]).nullable().default(null),
     date: dateField,
     startTime: timeField,
     endTime: timeField,
@@ -103,11 +103,13 @@ function parseActivity(ctx: AppContext, body: unknown, event: EventDoc) {
   const data = result.data;
   const errors: Record<string, string> = {};
 
+  const normalizedType = data.activityType ? normalizeActivityType(data.activityType) : null;
+  if (data.activityType && !normalizedType) errors.activityType = 'Choose a valid activity type';
   if (toMinutes(data.endTime) <= toMinutes(data.startTime)) errors.endTime = 'The end time must be later than the start time';
   if (data.date < event.startDate || data.date > event.endDate) {
     errors.date = `The date must fall within the event (${event.startDate} to ${event.endDate})`;
   }
-  if (data.requireTestPass && !data.activityType) errors.requireTestPass = 'Choose an activity type to require its mock test';
+  if (data.requireTestPass && !normalizedType) errors.requireTestPass = 'Choose an activity type to require its mock test';
   const required = normalizeSkills(data.requiredSkills, 10);
   if (required.error) errors.requiredSkills = required.error;
   const preferred = normalizeSkills(data.preferredSkills, 10);
@@ -118,6 +120,7 @@ function parseActivity(ctx: AppContext, body: unknown, event: EventDoc) {
   const preferredSkills = preferred.skills.filter((s) => !requiredKeys.has(skillKey(s)));
   return {
     ...data,
+    activityType: normalizedType,
     requiredSkills: required.skills,
     requiredSkillKeys: required.skills.map(skillKey),
     preferredSkills,

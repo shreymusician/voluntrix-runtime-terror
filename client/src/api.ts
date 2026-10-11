@@ -276,6 +276,7 @@ export interface AvailableActivity extends Activity {
   vacancies: number;
   myStatus: 'pending' | 'confirmed' | null;
   eligible: boolean;
+  canRequest: boolean;
   reasons: string[];
   testRequired: boolean;
   testCategory: string | null;
@@ -294,6 +295,7 @@ export interface VacantOpportunity extends Activity {
   vacancies: number;
   myStatus: 'pending' | 'confirmed' | null;
   eligible: boolean;
+  canRequest: boolean;
   kind: 'eligible' | 'explore';
   reasons: string[];
   matchesPreference: boolean;

@@ -55,15 +55,21 @@ interface Placement {
 
 /**
  * Creates one pending assignment inside an open transaction, re-checking
- * every hard constraint against the latest committed data first. Automatic
- * allocation and manual changes both end up here.
+ * every applicable constraint against the latest committed data first.
+ * Student requests may defer only missing skills until confirmation.
  */
-export async function placeVolunteer(placement: Placement, session: ClientSession): Promise<AssignmentDoc> {
+export async function placeVolunteer(
+  placement: Placement,
+  session: ClientSession,
+  options: { allowMissingSkills?: boolean } = {},
+): Promise<AssignmentDoc> {
   const { activity, event, volunteer } = await lockForSeat(placement.studentId, placement.activityId, session);
 
   const blocker = activityBlocker(activity, event);
   if (blocker) throw conflict(blocker, 'ACTIVITY_NOT_OPEN');
-  const violations = checkVolunteer(volunteer, activity);
+  const violations = checkVolunteer(volunteer, activity).filter(
+    (violation) => !(options.allowMissingSkills && violation.code === 'MISSING_SKILL'),
+  );
   if (violations.length) throw notEligible(volunteer.user.fullName, violations);
   if ((await liveCount(activity._id, ACTIVE_ASSIGNMENT_STATUSES, session)) >= activity.requiredCount) {
     throw conflict(`"${activity.name}" already has all ${activity.requiredCount} positions filled`, 'CAPACITY_FULL');
@@ -159,7 +165,11 @@ export async function assignManually(manager: UserDoc, activityId: string, stude
  */
 export async function applyForActivity(student: UserDoc, activityId: string) {
   const assignment = await mongoose.connection.transaction((session) =>
-    placeVolunteer({ activityId, studentId: student.id as string, source: 'manual', actor: student, explanation: ['Volunteered by the student'] }, session),
+    placeVolunteer(
+      { activityId, studentId: student.id as string, source: 'manual', actor: student, explanation: ['Volunteered by the student'] },
+      session,
+      { allowMissingSkills: true },
+    ),
   );
   return { id: assignment.id as string, status: assignment.status };
 }

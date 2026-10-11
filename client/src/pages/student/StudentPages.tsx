@@ -132,13 +132,15 @@ function ActivityCard({ a, onApplied }: { a: AvailableActivity; onApplied?: () =
   const [applying, setApplying] = useState(false);
   // Offered only when the server says eligible, there is room, and no test is
   // still outstanding. The server re-checks all of it on the request anyway.
-  const canVolunteer = a.eligible && !a.myStatus && a.vacancies > 0 && (!a.testRequired || a.testStatus === 'passed');
+  const canVolunteer = a.canRequest && !a.myStatus && a.vacancies > 0 && (!a.testRequired || a.testStatus === 'passed');
 
   const apply = async () => {
     setApplying(true);
     try {
       await api(`/student/activities/${a.id}/apply`, { method: 'POST' });
-      notify('success', `You have volunteered for "${a.name}". An organizer will confirm it.`);
+      notify('success', a.eligible
+        ? `You have volunteered for "${a.name}". An organizer will confirm it.`
+        : `Your request for "${a.name}" was sent. Add the required skills before an organizer can confirm it.`);
       onApplied?.();
     } catch (err) {
       notify('error', errorMessage(err));
@@ -154,7 +156,7 @@ function ActivityCard({ a, onApplied }: { a: AvailableActivity; onApplied?: () =
           <strong>{a.name}</strong>
           <span className="muted"> · {a.event.name}</span>
         </div>
-        {a.myStatus ? <StatusBadge status={a.myStatus} /> : <span className={`badge ${a.eligible ? 'badge-approved' : ''}`}>{a.eligible ? 'You qualify' : 'Not eligible'}</span>}
+        {a.myStatus ? <StatusBadge status={a.myStatus} /> : <span className={`badge ${a.eligible ? 'badge-approved' : a.canRequest ? 'badge-needs_review' : ''}`}>{a.eligible ? 'You qualify' : a.canRequest ? 'Requestable — skill gap' : 'Not eligible'}</span>}
       </div>
       <p className="muted">
         {formatDay(a.date)} · {a.startTime}–{a.endTime} · {a.location} · {a.vacancies} of {a.requiredCount} positions open
@@ -171,12 +173,15 @@ function ActivityCard({ a, onApplied }: { a: AvailableActivity; onApplied?: () =
           ))}
         </ul>
       )}
+      {a.canRequest && !a.eligible && !a.myStatus && (
+        <p className="muted">You may request this position because your schedule fits. An organizer cannot confirm it until you add the required skills.</p>
+      )}
       {!a.myStatus && <ActivityTestAction a={a} />}
       <Link className="btn btn-ghost btn-sm activity-map-link" to={`/student/map/${a.event.id}`}>Find event on map</Link>
       {canVolunteer && (
         <div className="test-gate">
           <button className="btn btn-primary btn-sm" onClick={apply} disabled={applying}>
-            {applying ? 'Submitting…' : 'Volunteer for this'}
+            {applying ? 'Submitting…' : a.eligible ? 'Volunteer for this' : 'Request despite skill gap'}
           </button>
         </div>
       )}
@@ -374,7 +379,9 @@ function OpportunityCard({ o, onApply, applying }: { o: VacantOpportunity; onApp
           <strong>{o.name}</strong>
           <span className="muted"> · {o.event.name}</span>
         </div>
-        <span className={`badge ${o.eligible ? 'badge-approved' : ''}`}>{o.eligible ? 'Eligible Opportunity' : 'Explore Opportunity'}</span>
+        <span className={`badge ${o.eligible ? 'badge-approved' : o.canRequest ? 'badge-needs_review' : ''}`}>
+          {o.eligible ? 'Eligible Opportunity' : o.canRequest ? 'Requestable — skill gap' : 'Explore Opportunity'}
+        </span>
       </div>
       <p className="muted">
         {formatDay(o.date)} · {o.startTime}–{o.endTime} · {o.location}
@@ -422,9 +429,9 @@ function OpportunityCard({ o, onApply, applying }: { o: VacantOpportunity; onApp
         <button className="btn btn-secondary btn-sm" onClick={() => setOpen((v) => !v)}>
           {open ? 'Hide details' : 'View Details'}
         </button>
-        {o.eligible ? (
+        {o.canRequest ? (
           <button className="btn btn-primary btn-sm" onClick={() => onApply(o)} disabled={applying}>
-            {applying ? 'Submitting…' : 'Volunteer for this'}
+            {applying ? 'Submitting…' : o.eligible ? 'Volunteer for this' : 'Request despite skill gap'}
           </button>
         ) : (
           <span className="muted">Meet the requirements above to volunteer.</span>
@@ -447,7 +454,9 @@ function VacancyPopup({ data, onClose, onApplied }: { data: VacancyDiscovery; on
     setApplying(o.id);
     try {
       await api(`/student/activities/${o.id}/apply`, { method: 'POST' });
-      notify('success', `You have volunteered for "${o.name}". An organizer will confirm it.`);
+      notify('success', o.eligible
+        ? `You have volunteered for "${o.name}". An organizer will confirm it.`
+        : `Your request for "${o.name}" was sent. Add the required skills before an organizer can confirm it.`);
       onApplied();
       onClose();
     } catch (err) {
@@ -473,11 +482,14 @@ function VacancyPopup({ data, onClose, onApplied }: { data: VacancyDiscovery; on
           </Empty>
         ) : (
           <>
-            {!data.opportunities.some((o) => o.eligible) && (
+            {!data.opportunities.some((o) => o.canRequest) && (
               <Alert kind="warn">
                 None of the vacant positions match your profile yet. Each one below lists what it needs, so you can see what to add to your{' '}
                 <Link to="/student/profile">profile</Link> or <Link to="/student/availability">availability</Link>.
               </Alert>
+            )}
+            {data.opportunities.some((o) => o.canRequest && !o.eligible) && (
+              <Alert kind="info">Your schedule fits some open positions. You can request them now, but organizers can confirm only after you add the required skills.</Alert>
             )}
             <ul className="activity-list">
               {data.opportunities.map((o) => (
@@ -508,7 +520,12 @@ export function ActivitiesPage() {
     .filter((a) => !onlyEligible || a.eligible)
     .filter((a) => !query.trim() || `${a.name} ${a.event.name} ${a.requiredSkills.join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()))
     .slice()
-    .sort((a, b) => Number(b.eligible) - Number(a.eligible) || a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+    .sort((a, b) =>
+      Number(b.eligible) - Number(a.eligible) ||
+      Number(b.canRequest) - Number(a.canRequest) ||
+      a.date.localeCompare(b.date) ||
+      a.startTime.localeCompare(b.startTime),
+    );
 
   // Only the server's verdict decides this. While loading, or when the request
   // failed, `data` is null and nothing is claimed about the student either way.
@@ -517,7 +534,7 @@ export function ActivitiesPage() {
   // never told they are "not eligible for anything" just because the remaining
   // activities clash with the duty they just took on.
   const hasPlace = (data?.activities ?? []).some((a) => a.myStatus);
-  const noneEligible = Boolean(data) && !hasPlace && openActivities.length > 0 && openActivities.every((a) => !a.eligible);
+  const noneEligible = Boolean(data) && !hasPlace && openActivities.length > 0 && openActivities.every((a) => !a.eligible && !a.canRequest);
 
   useEffect(() => {
     if (!noneEligible) return;
