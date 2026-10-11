@@ -29,9 +29,6 @@ export function createRoutes(ctx: AppContext) {
   const idParam = (req: Request) => parse(objectId, req.params.id);
 
   router.use(mw.checkOrigin);
-  // Resolve the session once, then refuse anything a general (USN) sign-in is
-  // not allowed to reach. Both run before every route below.
-  router.use(mw.loadSession, mw.enforceSessionScope);
   router.get('/health', (_req, res) => res.json({ ok: true }));
 
   // ------------------------------------------------------------------ auth

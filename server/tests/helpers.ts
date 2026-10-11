@@ -11,23 +11,6 @@ import { localToday, toInstant } from '../src/catalog.js';
 import { EVALUATION_CRITERIA } from '../src/domain.js';
 import { Activity, Assignment, Event, PerformanceEvaluation, User } from '../src/models.js';
 import { MemoryPhotoStorage } from '../src/storage/photoStorage.js';
-import type { VerificationChannel } from '../src/auth/verification.js';
-
-/** Captures the one-time sign-in codes so tests can read them, as a real inbox would. */
-export class RecordingVerificationChannel implements VerificationChannel {
-  readonly name = 'recording';
-  readonly deliversToStudent = true;
-  readonly sent: { email: string; code: string; expiresAt: Date }[] = [];
-  async send(user: { email: string }, code: string, expiresAt: Date) {
-    this.sent.push({ email: user.email, code, expiresAt });
-  }
-  last() {
-    return this.sent[this.sent.length - 1];
-  }
-  reset() {
-    this.sent.length = 0;
-  }
-}
 
 export const PASSWORD = 'Passw0rd!x';
 
@@ -36,12 +19,11 @@ export function useTestApp(dbName: string) {
   const ctx: AppContext = {
     config: { ...loadConfig(), nodeEnv: 'test', isProduction: false, facultyEmailDomains: ['college.edu'], facultyIdAllowlist: [], utcOffsetMinutes: 330, maxHoursPerDayLimit: 12, maxSkills: 15 },
     auth: new LocalAuthProvider(4),
-    verification: new RecordingVerificationChannel(),
     storage: new MemoryPhotoStorage(),
     policy: { ...defaultPromotionPolicy },
     rateLimits: { enabled: false, authMax: 5, sensitiveMax: 5 },
   };
-  const state = { ctx, app: createApp(ctx), codes: ctx.verification as RecordingVerificationChannel };
+  const state = { ctx, app: createApp(ctx) };
 
   beforeAll(async () => {
     const base = new URL(inject('mongoBaseUri'));
@@ -52,7 +34,6 @@ export function useTestApp(dbName: string) {
     await Promise.all(Object.values(mongoose.connection.collections).map((c) => c.deleteMany({})));
     ctx.policy = { ...defaultPromotionPolicy };
     ctx.rateLimits.enabled = false;
-    (ctx.verification as RecordingVerificationChannel).reset();
     state.app = createApp(ctx);
   });
   afterAll(disconnectDatabase);

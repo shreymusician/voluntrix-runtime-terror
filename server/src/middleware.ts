@@ -2,16 +2,15 @@ import type { ErrorRequestHandler, NextFunction, Request, RequestHandler, Respon
 import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import type { AppContext } from './context.js';
-import type { Role, SessionScope } from './domain.js';
+import type { Role } from './domain.js';
 import { HttpError, badRequest, forbidden, unauthorized } from './errors.js';
 import type { UserDoc } from './models.js';
-import { isVerifiedFaculty, resolveSessionContext } from './services/accounts.js';
+import { isVerifiedFaculty, resolveSession } from './services/accounts.js';
 
 declare module 'express-serve-static-core' {
   interface Request {
     user?: UserDoc;
     sessionToken?: string;
-    sessionScope?: SessionScope;
   }
 }
 
@@ -26,34 +25,12 @@ export function createMiddleware(ctx: AppContext) {
    * Loads the user from the session cookie on every request. Role and account
    * status always come from the database, never from the client.
    */
-  const loadSession: RequestHandler = async (req, _res, next) => {
+  const requireAuth: RequestHandler = async (req, _res, next) => {
     const token = req.cookies?.[ctx.config.cookieName];
-    const resolved = typeof token === 'string' && token ? await resolveSessionContext(token) : null;
-    if (resolved) {
-      req.user = resolved.user;
-      req.sessionToken = token;
-      req.sessionScope = resolved.scope;
-    }
-    next();
-  };
-
-  const requireAuth: RequestHandler = (req, _res, next) => {
-    if (!req.user) throw unauthorized('Your session is missing or has expired. Please sign in again.');
-    next();
-  };
-
-  /**
-   * Deny by default for the lightweight USN sign-in. A 'general' session may
-   * only reach the read-only general endpoints (plus signing out and reading
-   * its own identity); everything else — volunteer, organizer and faculty
-   * routes alike — is refused here, before any route handler runs, so a new
-   * endpoint is never accidentally exposed to it.
-   */
-  const GENERAL_SCOPE_PATHS = [/^\/general(\/|$)/, /^\/auth\/logout$/, /^\/health$/];
-  const enforceSessionScope: RequestHandler = (req, _res, next) => {
-    if (req.sessionScope === 'general' && !GENERAL_SCOPE_PATHS.some((allowed) => allowed.test(req.path))) {
-      throw forbidden('This sign-in only has access to the student information dashboard', 'GENERAL_SCOPE_ONLY');
-    }
+    const user = typeof token === 'string' && token ? await resolveSession(token) : null;
+    if (!user) throw unauthorized('Your session is missing or has expired. Please sign in again.');
+    req.user = user;
+    req.sessionToken = token;
     next();
   };
 
@@ -102,8 +79,6 @@ export function createMiddleware(ctx: AppContext) {
   }).single('photo');
 
   return {
-    loadSession,
-    enforceSessionScope,
     requireAuth,
     requireRole,
     requireVerifiedFaculty,

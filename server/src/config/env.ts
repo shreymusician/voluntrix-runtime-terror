@@ -29,8 +29,6 @@ export interface AppConfig {
   cookieName: string;
   maxPhotoBytes: number;
   usnPattern: RegExp;
-  /** Shown in validation messages so students know the shape expected. */
-  usnExample: string;
   facultyIdPattern: RegExp;
   facultyEmailDomains: string[];
   /** When non-empty, only these faculty IDs may register (lower-cased). */
@@ -55,7 +53,6 @@ export function loadConfig(): AppConfig {
     maxPhotoBytes: int('MAX_PHOTO_BYTES', 2 * 1024 * 1024),
     // VTU-style USN by default (e.g. 1RV21CS001); override for other institutions.
     usnPattern: pattern('USN_PATTERN', '^[1-4][A-Z]{2}\\d{2}[A-Z]{2,3}\\d{3}$'),
-    usnExample: process.env.USN_EXAMPLE || '1RV21CS001',
     facultyIdPattern: pattern('FACULTY_ID_PATTERN', '^[A-Z0-9][A-Z0-9-]{2,19}$'),
     facultyEmailDomains: list('FACULTY_EMAIL_DOMAINS'),
     facultyIdAllowlist: list('FACULTY_ID_ALLOWLIST'),
